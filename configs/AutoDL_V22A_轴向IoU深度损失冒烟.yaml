@@ -1,0 +1,15 @@
+base_config: ../versions/V22A_轴向IoU敏感深度损失/config.yaml
+
+model_name: qecr_v22a_axial_iou_depth_smoke
+
+dataset:
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v22_smoke.txt
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v22_smoke.txt
+  batch_size: 2
+  workers: 2
+
+trainer:
+  max_epoch: 1
+  save_frequency: 1
+  save_all: false
+  save_path: outputs/第三阶段_V22轴向IoU深度损失/冒烟测试/

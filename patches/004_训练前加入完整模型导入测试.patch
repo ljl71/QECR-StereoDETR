@@ -1,0 +1,11 @@
+diff --git a/scripts/运行QECR测试.sh b/scripts/运行QECR测试.sh
+--- a/scripts/运行QECR测试.sh
++++ b/scripts/运行QECR测试.sh
+@@ -9,6 +9,7 @@ python tools/检查QECR消融配置.py
+ python tools/测试QECR核心模块_最终.py
+ python tools/测试P2P3双目标定.py
+ python tools/测试QECR包装集成.py
++python tools/测试PyTorch2完整模型导入.py
+ python -m py_compile \
+   lib/models/monodetr/query_epipolar_runtime.py \
+   lib/models/qecr_model.py \

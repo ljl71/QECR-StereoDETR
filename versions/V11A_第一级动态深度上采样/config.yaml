@@ -1,0 +1,16 @@
+base_config: ../V11O_双线性深度上采样控制/config.yaml
+
+model_name: qecr_v11a_stage1_dynamic_depth_upsampling
+
+model:
+  dynamic_depth_upsampling:
+    enabled: true
+    stages: [1]
+    max_offset: 0.5
+
+trainer:
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - depth_predictor.depth_classifier.0.offset_predictor.
+  pretrain_allow_unexpected: false
+  save_path: outputs/第二创新点_V11动态深度上采样/V11A_第一级动态上采样/

@@ -1,0 +1,40 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v22o_laplace_depth_control
+random_seed: 444
+
+# 公平控制组：从同一个V09最优权重出发，只续训原有depth_classifier。
+# 不启用轴向GIoU，因而仍是StereoDETR原始Laplace查询深度损失。
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: false
+    freeze_detector: false
+    score_power: 1.5
+
+  axial_depth_iou:
+    enabled: false
+    loss_coef: 0.5
+    min_half_extent: 0.05
+    eps: 0.000001
+    train_only_depth_classifier: true
+    trainable_prefixes:
+      - depth_predictor.depth_classifier.
+
+optimizer:
+  lr: 0.00002
+  parameter_lr_multipliers: {}
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 5
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/第三阶段_V22轴向IoU深度损失/V22O_原始Laplace深度控制/

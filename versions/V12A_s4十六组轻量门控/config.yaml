@@ -1,0 +1,23 @@
+base_config: ../V12O_原始相关公平控制/config.yaml
+
+model_name: qecr_v12a_s4_group16_light_gate
+
+# G0正式诊断只授权s4、16组。门控的最后1x1卷积零初始化，
+# 因而加载V09后第一次前向与V12O严格等价。
+model:
+  groupwise_correlation:
+    enabled: true
+    scale: 4
+    num_groups: 16
+    gate_kernel_size: 3
+    train_only_cost_aggregation: true
+    trainable_prefixes:
+      - depth_predictor.cost_agg.
+      - depth_predictor.groupwise_correlation_s4.
+
+trainer:
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - depth_predictor.groupwise_correlation_s4.
+  pretrain_allow_unexpected: false
+  save_path: outputs/第二创新点_V12分组相关门控/V12A_s4十六组轻量门控/

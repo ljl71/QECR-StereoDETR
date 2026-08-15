@@ -1,0 +1,159 @@
+base_config: AutoDL无蒸馏基础配置.yaml
+
+dataset:
+  matcher_mode: StereoBM
+  disparity_supervision:
+    mode: scalar
+    cell_size: 4
+    lrc_soft_weight: false
+    lrc_temperature: 1.0
+    lrc_confidence_floor: 0.25
+
+model:
+  # 参数无关的深度概率读出。默认严格保持StereoDETR全分布期望；
+  # V10诊断只在推理配置中开启前景Top-K集中读出。
+  depth_readout:
+    enabled: false
+    top_k: 2
+
+  # V11：默认保持原始双线性上采样。正式V11配置只替换
+  # depth_classifier中的指定阶段，并可冻结除该分类分支外的全部参数。
+  dynamic_depth_upsampling:
+    enabled: false
+    stages: []
+    max_offset: 0.5
+    train_only_depth_classifier: false
+    trainable_prefixes:
+      - depth_predictor.depth_classifier.
+
+  # V12: preserve group-wise matching proposals at the G0-validated s4 scale.
+  # The lightweight gate is disabled by default and starts as the exact
+  # full-channel average when enabled.
+  groupwise_correlation:
+    enabled: false
+    scale: 4
+    num_groups: 16
+    gate_kernel_size: 3
+    train_only_cost_aggregation: false
+    trainable_prefixes:
+      - depth_predictor.cost_agg.
+
+  # G4只读诊断发现固定s4局部平滑具有稳定的稀疏视差收益，但不支持
+  # Selective-Stereo式边界/内部选择语义。默认关闭以逐位保持V09；
+  # V14零训练复评仅开启参数无关的单次3x3空间平均。
+  correlation_smoothing:
+    enabled: false
+    scale: 4
+    kernel_size: 3
+    blend: 1.0
+    passes: 1
+
+  # V20：冻结V09，只训练查询级米制深度残差头。默认关闭；V20A用零上下文
+  # 验证“小头容量”，V20B才读入现有几何深度与立体深度的归一化差值。
+  geometry_depth_residual:
+    enabled: false
+    use_geometry_prior: false
+    hidden_dim: 32
+    max_correction: 3.0
+    detach_inputs: true
+    train_only_head: false
+    trainable_prefixes:
+      - depth_residual_head.
+
+  # V22: training-only depth objective aligned with the occupied interval on
+  # the camera Z axis.  It adds no inference branch or parameters.  The formal
+  # pair freezes every V09 tensor except the existing depth classifier.
+  axial_depth_iou:
+    enabled: false
+    loss_coef: 0.5
+    min_half_extent: 0.05
+    eps: 0.000001
+    train_only_depth_classifier: false
+    trainable_prefixes:
+      - depth_predictor.depth_classifier.
+
+  disparity_supervision:
+    mode: scalar
+    variance: 0.5
+    smoothing_radius: 4
+    lrc_soft_weight: false
+
+  query_depth:
+    enabled: false
+    local_bins: 16
+    num_points: 1
+    temperature: 1.0
+    target_temperature: 1.0
+    point_radius: 0.25
+    entropy_weight: 1.0
+    background_weight: 1.0
+    align_corners: true
+
+    cross_layer_refine: false
+    prior_weight: 0.5
+    detach_window: true
+    posterior_floor: 0.05
+
+    # V03/V04：以极小查询权重起步，且查询深度最多占一半，避免直接覆盖基线深度。
+    baseline_safe_fusion: false
+    initial_query_weight: 0.05
+    max_query_weight: 0.50
+
+    # 旧 QDR 门控关闭。V18 使用下方能够读取极线置信度的新门控。
+    geometry_gate: false
+    quality_aligned_cls: false
+
+    distribution_loss_coef: 0.5
+
+  query_epipolar:
+    enabled: false
+    feature_level: 2
+    num_samples: 5
+    search_radius: 2.0
+    matching_temperature: 0.07
+    depth_temperature: 1.0
+    fusion_weight: 0.5
+    bidirectional: false
+    cycle_threshold: 1.0
+    detach_points: true
+    detach_depth_center: true
+    align_corners: true
+    min_disparity_pixels: 0.25
+
+    epipolar_loss_coef: 0.2
+    use_geometry_gate: false
+    gate_hidden_dim: 32
+    initial_stereo_weight: 0.9
+    max_geometry_correction: 10.0
+    gate_oracle_temperature: 1.0
+    gate_loss_coef: 0.2
+
+  # 查询级 3D 质量排序。默认关闭，V06B/V06C 单独启用。
+  quality_ranking:
+    enabled: false
+    loss_enabled: true
+    freeze_detector: true
+    quality_only_when_frozen: true
+    score_power: 1.0
+    point_loss_coef: 10.0
+    negative_threshold: 0.1
+    negative_weight: 0.1
+    pairwise_enabled: false
+    pairwise_loss_coef: 0.5
+    pairwise_margin: 0.1
+    max_pairs_per_class: 32
+
+  # V08: training-only cuboid geometry alignment. Disabled by default.
+  geometry_alignment:
+    enabled: false
+    corner_enabled: false
+    projection_enabled: false
+    corner_loss_coef: 1.0
+    projection_loss_coef: 1.0
+    projection_boundary_weight: 0.25
+    start_epoch: 1
+    ramp_epochs: 4
+
+tester:
+  # 默认保持 StereoDETR 的分类分数 Top-K；V07 单独开启质量引导检索。
+  quality_guided_topk: false

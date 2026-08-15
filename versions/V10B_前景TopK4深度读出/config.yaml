@@ -1,0 +1,16 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v10b_foreground_topk4
+
+model:
+  depth_readout:
+    enabled: true
+    top_k: 4
+
+trainer:
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/第二创新点_V10前景TopK深度读出诊断/V10B_前景TopK4/
+

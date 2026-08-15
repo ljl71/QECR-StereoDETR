@@ -1,0 +1,7 @@
+base_config: ../versions/V06C_点式加成对排序/config.yaml
+
+model_name: qecr_v06c_one_epoch_smoke
+
+trainer:
+  max_epoch: 1
+  save_path: outputs/三维质量排序冒烟/V06C_一轮/

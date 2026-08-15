@@ -1,0 +1,28 @@
+base_config: ../../configs/QECR默认配置.yaml
+
+model_name: qecr_v05a_short_control
+
+dataset:
+  matcher_mode: StereoBM
+  disparity_supervision:
+    mode: scalar
+    lrc_soft_weight: false
+
+model:
+  disparity_supervision:
+    mode: scalar
+    lrc_soft_weight: false
+
+optimizer:
+  lr: 0.00002
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 10
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/QECR消融实验/V00_官方基线/qecr_v00_official_baseline/checkpoint_best.pth
+  save_path: outputs/视差监督短程筛选/V05A_短程续训对照/

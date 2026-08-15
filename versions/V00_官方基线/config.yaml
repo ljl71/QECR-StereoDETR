@@ -1,0 +1,7 @@
+base_config: ../../configs/QECR默认配置.yaml
+
+model_name: qecr_v00_official_baseline
+
+trainer:
+  save_path: outputs/QECR消融实验/V00_官方基线/
+

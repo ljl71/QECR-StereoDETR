@@ -1,0 +1,9 @@
+numpy<2
+pyyaml
+scipy
+opencv-python-headless
+numba
+scikit-image
+tqdm
+fvcore
+

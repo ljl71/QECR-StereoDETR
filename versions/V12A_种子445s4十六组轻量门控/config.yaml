@@ -1,0 +1,7 @@
+base_config: ../V12A_s4十六组轻量门控/config.yaml
+
+random_seed: 445
+model_name: qecr_v12a_seed445_s4_group16_light_gate
+
+trainer:
+  save_path: outputs/第二创新点_V12分组相关门控/第二随机种子_445/V12A_s4十六组轻量门控/

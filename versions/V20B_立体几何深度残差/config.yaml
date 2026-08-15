@@ -1,0 +1,20 @@
+base_config: ../V20A_查询级深度残差/config.yaml
+
+model_name: qecr_v20b_stereo_geometry_depth_residual
+
+# V20B正式候选：仅比V20A多开放已经由StereoDETR计算、但V09丢弃的
+# (几何深度-立体深度)/立体深度差值；没有新增骨干、相关体或解码器。
+model:
+  geometry_depth_residual:
+    enabled: true
+    use_geometry_prior: true
+    hidden_dim: 32
+    max_correction: 3.0
+    detach_inputs: true
+    train_only_head: true
+    trainable_prefixes:
+      - depth_residual_head.
+
+trainer:
+  save_path: outputs/第三阶段_V20立体几何深度残差/V20B_立体几何深度残差/
+

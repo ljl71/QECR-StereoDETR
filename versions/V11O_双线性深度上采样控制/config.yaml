@@ -1,0 +1,39 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v11o_bilinear_depth_upsampling_control
+
+# V11公平控制：保留V09质量头用于推理排序，但不训练质量头，也不计算
+# 质量损失。只续训原depth_classifier，训练范围与V11A/V11B一致。
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: false
+    freeze_detector: false
+    score_power: 1.5
+
+  dynamic_depth_upsampling:
+    enabled: false
+    stages: []
+    max_offset: 0.5
+    train_only_depth_classifier: true
+    trainable_prefixes:
+      - depth_predictor.depth_classifier.
+
+optimizer:
+  lr: 0.00002
+  parameter_lr_multipliers:
+    offset_predictor: 10.0
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 5
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/第二创新点_V11动态深度上采样/V11O_双线性训练控制/

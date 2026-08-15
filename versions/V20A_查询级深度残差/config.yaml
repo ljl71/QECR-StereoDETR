@@ -1,0 +1,42 @@
+base_config: ../V20O_V09零训练深度控制/config.yaml
+
+model_name: qecr_v20a_query_only_depth_residual
+
+# V20A容量对照：只读取冻结的解码器查询特征，几何上下文恒为0。
+# 它与V20B参数量完全一致，用于排除“只是多了一个小MLP”的解释。
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: false
+    freeze_detector: false
+    score_power: 1.5
+
+  geometry_depth_residual:
+    enabled: true
+    use_geometry_prior: false
+    hidden_dim: 32
+    max_correction: 3.0
+    detach_inputs: true
+    train_only_head: true
+    trainable_prefixes:
+      - depth_residual_head.
+
+optimizer:
+  lr: 0.001
+  parameter_lr_multipliers: {}
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 5
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - depth_residual_head.
+  pretrain_allow_unexpected: false
+  save_path: outputs/第三阶段_V20立体几何深度残差/V20A_查询级深度残差/
+

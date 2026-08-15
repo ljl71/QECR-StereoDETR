@@ -1,0 +1,8 @@
+base_config: ../versions/V18_无蒸馏完整模型/config.yaml
+
+model_name: qecr_v18_autodl_epoch1_smoke
+
+trainer:
+  max_epoch: 1
+  save_frequency: 1
+  save_path: outputs/QECR冒烟测试/V18_完整模型_一轮/

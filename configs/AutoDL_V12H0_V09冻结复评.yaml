@@ -1,0 +1,6 @@
+base_config: ../versions/V12O_原始相关公平控制/config.yaml
+
+model_name: qecr_v12h0_v09_frozen_evaluation
+
+trainer:
+  save_path: outputs/第二创新点_V12分组相关门控/门控独立性移植诊断/H0_V09冻结复评/

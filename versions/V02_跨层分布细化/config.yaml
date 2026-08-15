@@ -1,0 +1,13 @@
+base_config: ../../configs/QECR默认配置.yaml
+
+model_name: qecr_v02_cross_layer_refinement
+
+model:
+  query_depth:
+    enabled: true
+    cross_layer_refine: true
+    num_points: 1
+
+trainer:
+  save_path: outputs/QECR消融实验/V02_跨层分布细化/
+

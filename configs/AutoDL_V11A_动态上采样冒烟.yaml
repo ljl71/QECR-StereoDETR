@@ -1,0 +1,15 @@
+base_config: ../versions/V11A_第一级动态深度上采样/config.yaml
+
+model_name: qecr_v11a_dynamic_upsampling_smoke
+
+dataset:
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v11_smoke.txt
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v11_smoke.txt
+  batch_size: 2
+  workers: 2
+
+trainer:
+  max_epoch: 1
+  save_frequency: 1
+  save_all: false
+  save_path: outputs/第二创新点_V11动态深度上采样/冒烟测试/

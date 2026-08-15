@@ -1,0 +1,15 @@
+base_config: ../versions/V05D_多候选加LRC软权重/config.yaml
+
+model_name: qecr_v05d_one_epoch_smoke
+
+dataset:
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v05_smoke.txt
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v05_smoke.txt
+  batch_size: 2
+  workers: 2
+
+trainer:
+  max_epoch: 1
+  save_frequency: 1
+  save_all: false
+  save_path: outputs/视差监督冒烟测试/V05D_一轮/

@@ -1,0 +1,18 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+# 该配置只用于最终 KITTI 无标签测试集推理。方法、阈值、Top-K 和
+# quality score power 均继承已经在 Chen 验证集上固定的 V09，不得根据
+# KITTI test 返回结果继续调参或再次提交。
+model_name: qecr_v09_kitti_test_submission
+
+dataset:
+  test_split: test
+  root_dir_eval: /root/autodl-tmp/datasets/KITTI/object/testing
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/testing/ImageSets/test.txt
+  batch_size: 12
+
+trainer:
+  gpu_ids: "0"
+  save_all: false
+  save_path: outputs/KITTI官网测试_V09/
+

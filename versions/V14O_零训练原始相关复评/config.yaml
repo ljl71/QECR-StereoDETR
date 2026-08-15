@@ -1,0 +1,16 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v14o_zero_train_original_correlation
+
+# V14第一阶段只做零训练复评。该组关闭平滑，用同一个V09 checkpoint
+# 验证新增代码在开关关闭时不会改变正式AP。
+model:
+  correlation_smoothing:
+    enabled: false
+    scale: 4
+    kernel_size: 3
+    blend: 1.0
+    passes: 1
+
+trainer:
+  save_path: outputs/固定相关平滑_V14/零训练复评/V14O_原始相关/

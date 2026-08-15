@@ -1,0 +1,8 @@
+base_config: ../versions/V06C_点式加成对排序/config.yaml
+
+random_seed: 445
+
+model_name: qecr_v06c_seed445_replication
+
+trainer:
+  save_path: outputs/三维质量排序短程筛选/V06C_种子445复核/

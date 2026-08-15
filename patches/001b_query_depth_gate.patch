@@ -1,0 +1,61 @@
+diff --git a/lib/models/monodetr/query_depth.py b/lib/models/monodetr/query_depth.py
+--- a/lib/models/monodetr/query_depth.py
++++ b/lib/models/monodetr/query_depth.py
+@@ -322,11 +322,14 @@ class UncertaintyGeometryGate(nn.Module):
+         hidden_gate_dim: int = 32,
+         initial_stereo_weight: float = 0.9,
+         max_correction: float = 10.0,
++        epipolar_features: bool = False,
+     ) -> None:
+         super().__init__()
+         self.max_correction = float(max_correction)
++        self.epipolar_features = bool(epipolar_features)
++        gate_feature_dim = hidden_dim + 5 + (2 if self.epipolar_features else 0)
+         self.gate = nn.Sequential(
+-            nn.Linear(hidden_dim + 5, hidden_gate_dim),
++            nn.Linear(gate_feature_dim, hidden_gate_dim),
+             nn.ReLU(inplace=True),
+             nn.Linear(hidden_gate_dim, 1),
+         )
+@@ -345,7 +348,9 @@ class UncertaintyGeometryGate(nn.Module):
+         entropy: torch.Tensor,
+         background_probability: torch.Tensor,
+         log_variance: torch.Tensor,
+         point_depth_variance: torch.Tensor,
++        epipolar_confidence: Optional[torch.Tensor] = None,
++        epipolar_cycle_error: Optional[torch.Tensor] = None,
+     ) -> Dict[str, torch.Tensor]:
+         stereo_depth = stereo_depth.clamp_min(1e-3)
+         geometry_depth = geometry_depth.clamp_min(1e-3)
+@@ -355,13 +360,31 @@ class UncertaintyGeometryGate(nn.Module):
+         uncertainty_features = torch.cat(
+             [
+                 entropy,
+                 background_probability,
+                 relative_disagreement,
+                 log_variance.clamp(-5.0, 5.0),
+                 point_depth_variance.sqrt().clamp(max=20.0),
+             ],
+             dim=-1,
+         )
++        if self.epipolar_features:
++            if epipolar_confidence is None or epipolar_cycle_error is None:
++                raise ValueError(
++                    "epipolar confidence and cycle error are required when "
++                    "epipolar gate features are enabled"
++                )
++            epipolar_uncertainty = 1.0 - epipolar_confidence.clamp(0.0, 1.0)
++            normalized_cycle_error = epipolar_cycle_error.clamp(
++                min=0.0, max=5.0
++            ) / 5.0
++            uncertainty_features = torch.cat(
++                [
++                    uncertainty_features,
++                    epipolar_uncertainty,
++                    normalized_cycle_error,
++                ],
++                dim=-1,
++            )
+         stereo_weight = torch.sigmoid(
+             self.gate(torch.cat([query_features, uncertainty_features], dim=-1))
+         )

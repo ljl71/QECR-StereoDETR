@@ -1,0 +1,23 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v20o_v09_zero_train_depth_control
+
+# V20O不训练：复制同一份V09最佳权重并正式复评，验证实验管线没有漂移。
+model:
+  geometry_depth_residual:
+    enabled: false
+    use_geometry_prior: false
+    hidden_dim: 32
+    max_correction: 3.0
+    detach_inputs: true
+    train_only_head: false
+    trainable_prefixes:
+      - depth_residual_head.
+
+trainer:
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/第三阶段_V20立体几何深度残差/V20O_V09零训练深度控制/
+

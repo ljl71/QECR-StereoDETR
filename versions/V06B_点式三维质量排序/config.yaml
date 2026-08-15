@@ -1,0 +1,37 @@
+base_config: ../../configs/QECR默认配置.yaml
+
+model_name: qecr_v06b_pointwise_3d_quality
+
+dataset:
+  # 质量标签需要能精确解码回 KITTI 相机坐标；本阶段冻结 V00，只训练小头。
+  aug_pd: false
+  aug_crop: false
+  random_mixup3d: 0.0
+  random_flip: 0.0
+  random_crop: 0.0
+  random_switch: 0.0
+
+model:
+  quality_ranking:
+    enabled: true
+    freeze_detector: true
+    quality_only_when_frozen: true
+    point_loss_coef: 10.0
+    negative_threshold: 0.1
+    negative_weight: 0.1
+    pairwise_enabled: false
+
+optimizer:
+  lr: 0.001
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 5
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/QECR消融实验/V00_官方基线/qecr_v00_official_baseline/checkpoint_best.pth
+  pretrain_strict: false
+  save_path: outputs/三维质量排序短程筛选/V06B_点式三维质量排序/

@@ -1,0 +1,17 @@
+base_config: ../versions/V20B_立体几何深度残差/config.yaml
+
+model_name: qecr_v20b_geometry_depth_residual_smoke
+
+dataset:
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v20_smoke.txt
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v20_smoke.txt
+  test_split: val
+  batch_size: 12
+  workers: 4
+
+trainer:
+  max_epoch: 1
+  save_frequency: 1
+  save_all: false
+  save_path: outputs/第三阶段_V20立体几何深度残差/冒烟测试/
+

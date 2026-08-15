@@ -1,0 +1,46 @@
+base_config: 001-final_exp1.yaml
+
+dataset:
+  teacher_cache:
+    enabled: false
+    root_dir: ./data/KITTI/FastFoundationStereo_teacher_cache
+    strict: true
+
+model:
+  query_depth:
+    enabled: false
+    local_bins: 16
+    num_points: 1
+    temperature: 1.0
+    target_temperature: 1.0
+    point_radius: 0.25
+    entropy_weight: 1.0
+    background_weight: 1.0
+    align_corners: true
+
+    cross_layer_refine: false
+    prior_weight: 0.5
+    detach_window: true
+    posterior_floor: 0.05
+
+    baseline_safe_fusion: false
+    initial_query_weight: 0.05
+    max_query_weight: 0.50
+
+    geometry_gate: false
+    gate_hidden_dim: 32
+    initial_stereo_weight: 0.9
+    max_geometry_correction: 10.0
+    gate_oracle_temperature: 1.0
+
+    quality_aligned_cls: false
+    quality_iou_alpha: 0.5
+    quality_depth_tau: 0.1
+
+    offline_teacher: false
+    teacher_confidence_threshold: 0.5
+    teacher_target_temperature: 1.0
+
+    distribution_loss_coef: 0.5
+    gate_loss_coef: 0.2
+    teacher_loss_coef: 0.5

@@ -1,0 +1,16 @@
+base_config: ../V14O_零训练原始相关复评/config.yaml
+
+model_name: qecr_v14s_zero_train_s4_fixed_smoothing
+
+# 完全复用V09权重，不训练、不增加参数；只在s4原始相关体进入
+# LightStereo cost_agg之前，按G4预注册结论执行一次固定3x3空间平均。
+model:
+  correlation_smoothing:
+    enabled: true
+    scale: 4
+    kernel_size: 3
+    blend: 1.0
+    passes: 1
+
+trainer:
+  save_path: outputs/固定相关平滑_V14/零训练复评/V14S_s4固定平滑/

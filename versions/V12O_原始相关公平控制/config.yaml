@@ -1,0 +1,40 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v12o_original_correlation_control
+
+# V12公平控制：从同一个V09最佳权重出发，只续训原有cost_agg。
+# 质量头保留用于推理排序，但不再更新，也不计算质量损失。
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: false
+    freeze_detector: false
+    score_power: 1.5
+
+  groupwise_correlation:
+    enabled: false
+    scale: 4
+    num_groups: 16
+    gate_kernel_size: 3
+    train_only_cost_aggregation: true
+    trainable_prefixes:
+      - depth_predictor.cost_agg.
+
+optimizer:
+  lr: 0.00002
+  parameter_lr_multipliers:
+    groupwise_correlation_s4: 10.0
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 5
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/第二创新点_V12分组相关门控/V12O_原始相关公平控制/

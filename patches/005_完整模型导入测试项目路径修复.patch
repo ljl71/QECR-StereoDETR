@@ -1,0 +1,17 @@
+diff --git a/tools/测试PyTorch2完整模型导入.py b/tools/测试PyTorch2完整模型导入.py
+--- a/tools/测试PyTorch2完整模型导入.py
++++ b/tools/测试PyTorch2完整模型导入.py
+@@ -1,6 +1,13 @@
+ #!/usr/bin/env python3
+ """Verify the real StereoDETR import chain under the pinned PyTorch 2.0 stack."""
+ 
++import sys
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
+ import torch
+ 
+ from lib.helpers.qecr_model_helper import build_model  # noqa: F401

@@ -1,0 +1,31 @@
+base_config: ../../configs/QECR默认配置.yaml
+
+model_name: qecr_v05c_sgbm_multi_candidate
+
+dataset:
+  matcher_mode: SGBM
+  disparity_supervision:
+    mode: multi_candidate
+    cell_size: 4
+    lrc_soft_weight: false
+
+model:
+  disparity_supervision:
+    mode: multi_candidate
+    variance: 0.5
+    smoothing_radius: 4
+    lrc_soft_weight: false
+
+optimizer:
+  lr: 0.00002
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 10
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/QECR消融实验/V00_官方基线/qecr_v00_official_baseline/checkpoint_best.pth
+  save_path: outputs/视差监督短程筛选/V05C_SGBM多候选监督/

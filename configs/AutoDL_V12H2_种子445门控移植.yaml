@@ -1,0 +1,6 @@
+base_config: ../versions/V12A_s4十六组轻量门控/config.yaml
+
+model_name: qecr_v12h2_seed445_gate_transplant
+
+trainer:
+  save_path: outputs/第二创新点_V12分组相关门控/门控独立性移植诊断/H2_种子445门控移植/

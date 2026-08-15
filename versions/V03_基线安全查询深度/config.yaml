@@ -1,0 +1,15 @@
+base_config: ../../configs/QECR默认配置.yaml
+
+model_name: qecr_v03_baseline_safe_query_depth
+
+model:
+  query_depth:
+    enabled: true
+    cross_layer_refine: false
+    baseline_safe_fusion: true
+    initial_query_weight: 0.05
+    max_query_weight: 0.50
+    num_points: 1
+
+trainer:
+  save_path: outputs/QECR消融实验/V03_基线安全查询深度/
