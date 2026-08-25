@@ -57,9 +57,12 @@ class Trainer(object):
                                 cfg.get('pretrain_allow_unexpected', True)
                             ))
 
-        if cfg.get('resume_model', None):
-            resume_model_path = os.path.join(self.output_dir, "checkpoint.pth")
-            assert os.path.exists(resume_model_path)
+        resume_model_path = os.path.join(self.output_dir, "checkpoint.pth")
+        resume_requested = bool(cfg.get('resume_model', None))
+        resume_if_exists = bool(cfg.get('resume_if_exists', False))
+        if resume_requested or (resume_if_exists and os.path.exists(resume_model_path)):
+            if not os.path.exists(resume_model_path):
+                raise FileNotFoundError(resume_model_path)
             self.epoch, self.best_result, self.best_epoch = load_checkpoint(
                 model=self.model.to(self.device),
                 optimizer=self.optimizer,
@@ -68,6 +71,11 @@ class Trainer(object):
                 logger=self.logger)
             self.lr_scheduler.last_epoch = self.epoch - 1
             self.logger.info("Loading Checkpoint... Best Result:{}, Best Epoch:{}".format(self.best_result, self.best_epoch))
+        elif resume_if_exists:
+            self.logger.info(
+                "No rolling checkpoint found; starting the fixed-epoch run "
+                "from its configured initialization."
+            )
         
     def train(self):
         start_epoch = self.epoch
@@ -119,6 +127,33 @@ class Trainer(object):
             progress_bar.update()
 
         self.logger.info("Best Result:{}, epoch:{}".format(best_result, best_epoch))
+
+        # KITTI test labels are hidden, so a trainval run must not select a
+        # checkpoint by test performance.  When explicitly requested, retain
+        # the state after the preregistered number of epochs under an
+        # unambiguous name.  Existing validation-based experiments keep their
+        # historical behaviour because this switch is disabled by default.
+        if bool(self.cfg.get('save_final_checkpoint', False)):
+            os.makedirs(self.output_dir, exist_ok=True)
+            final_checkpoint = os.path.join(
+                self.output_dir,
+                'checkpoint_final',
+            )
+            save_checkpoint(
+                get_checkpoint_state(
+                    self.model,
+                    self.optimizer,
+                    self.epoch,
+                    best_result,
+                    best_epoch,
+                ),
+                final_checkpoint,
+            )
+            self.logger.info(
+                "Saved fixed-epoch final checkpoint: %s.pth (epoch=%d)",
+                final_checkpoint,
+                self.epoch,
+            )
 
         return None
 

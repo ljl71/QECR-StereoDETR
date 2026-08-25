@@ -1,0 +1,8 @@
+base_config: V09T2_trainval_QLQC.yaml
+
+model_name: qecr_v09e2_trainval_qlqc_kitti_test
+
+trainer:
+  resume_if_exists: false
+  save_final_checkpoint: false
+  save_path: outputs/KITTI_trainval官网复核/官网测试/QLQC最终模型/

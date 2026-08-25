@@ -1,0 +1,25 @@
+base_config: ../QECR默认配置.yaml
+
+# 固定协议阶段0：使用全部7481张有标签图像训练基础StereoDETR。
+# test无公开标签，因此不做逐轮验证，也不允许按test结果选择checkpoint。
+model_name: qecr_v09t0_trainval_stereodetr
+
+dataset:
+  root_dir: /root/autodl-tmp/datasets/KITTI/object/training
+  train_split: trainval
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/trainval.txt
+  test_split: test
+  root_dir_eval: /root/autodl-tmp/datasets/KITTI/object/testing
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/testing/ImageSets/test.txt
+  batch_size: 12
+  workers: 8
+
+trainer:
+  max_epoch: 195
+  gpu_ids: "0"
+  save_frequency: 1
+  save_all: false
+  resume_model: false
+  resume_if_exists: true
+  save_final_checkpoint: true
+  save_path: outputs/KITTI_trainval官网复核/V09T0_trainval基础模型/

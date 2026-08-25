@@ -15,8 +15,11 @@ bash -n scripts/运行V14固定相关平滑.sh
 bash -n scripts/运行G5三维框组件误差归因.sh
 bash -n scripts/运行V20立体几何深度残差.sh
 bash -n scripts/运行V22轴向IoU深度损失.sh
+bash -n scripts/运行V09_trainval官网最终提交.sh
 
 python tools/检查QECR消融配置.py
+python tools/检查V09Trainval官网复核配置.py
+python tools/测试固定轮次Checkpoint.py
 python tools/诊断3D质量排序_G1.py --self_test
 python tools/诊断三维框组件误差_G5.py --self_test
 python tools/诊断朝向感知几何深度_G6.py --self_test
@@ -96,5 +99,9 @@ python -m py_compile \
   tools/汇总V14固定相关平滑.py \
   tools/测试空间投影对齐.py \
   tools/训练与评估_无蒸馏QECR.py
+python -m py_compile \
+  tools/检查V09Trainval官网复核配置.py \
+  tools/测试固定轮次Checkpoint.py \
+  tools/检查并打包KITTI提交.py
 
 echo "QECR pre-training checks passed"
