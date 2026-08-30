@@ -48,6 +48,21 @@ model:
     blend: 1.0
     passes: 1
 
+  # V23: baseline-preserving cost pre-aggregation at s4. ``rdsa`` adds a tiny
+  # D-H-W residual control. ``gpsd`` preserves four correlation groups until
+  # a lightweight spatial-disparity mixer. The default path adds no module.
+  cost_preaggregation:
+    enabled: false
+    type: none
+    scale: 4
+    num_groups: 4
+    expansion_ratio: 2
+    rdsa_hidden_channels: 4
+    residual_scale: 1.0
+    train_only_cost_aggregation: false
+    trainable_prefixes:
+      - depth_predictor.cost_agg.
+
   # V20：冻结V09，只训练查询级米制深度残差头。默认关闭；V20A用零上下文
   # 验证“小头容量”，V20B才读入现有几何深度与立体深度的归一化差值。
   geometry_depth_residual:

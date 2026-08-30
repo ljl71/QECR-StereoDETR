@@ -1,0 +1,15 @@
+base_config: ../versions/V23B_分组保真空间视差预聚合/config.yaml
+
+model_name: qecr_v23b_gpsd_smoke
+
+dataset:
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v23_smoke.txt
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_v23_smoke.txt
+  batch_size: 2
+  workers: 2
+
+trainer:
+  max_epoch: 1
+  save_frequency: 1
+  save_all: false
+  save_path: outputs/V23分组保真预聚合/冒烟测试/

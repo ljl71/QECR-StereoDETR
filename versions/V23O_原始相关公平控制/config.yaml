@@ -1,0 +1,49 @@
+base_config: ../V09_V08O加点式三维质量排序/config.yaml
+
+model_name: qecr_v23o_original_correlation_control
+
+# V23公平控制。质量头保留用于推理排序，但不再计算质量损失。
+# 从同一个V09最佳权重出发，只允许已有cost_agg继续适配5轮。
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: false
+    freeze_detector: false
+    score_power: 1.5
+
+  groupwise_correlation:
+    enabled: false
+
+  correlation_smoothing:
+    enabled: false
+
+  cost_preaggregation:
+    enabled: false
+    type: none
+    scale: 4
+    num_groups: 4
+    expansion_ratio: 2
+    rdsa_hidden_channels: 4
+    residual_scale: 1.0
+    train_only_cost_aggregation: true
+    trainable_prefixes:
+      - depth_predictor.cost_agg.
+
+optimizer:
+  lr: 0.00002
+  parameter_lr_multipliers:
+    cost_preaggregation_s4: 10.0
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 5
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/V23分组保真预聚合/V23O_原始相关公平控制/

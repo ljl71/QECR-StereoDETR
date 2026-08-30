@@ -87,6 +87,7 @@ class StereoDETR(nn.Module):
                  quality_ranking_cfg=None, geometry_alignment_cfg=None,
                  dynamic_depth_upsampling_cfg=None,
                  groupwise_correlation_cfg=None,
+                 cost_preaggregation_cfg=None,
                  geometry_depth_residual_cfg=None,
                  axial_depth_iou_cfg=None):
 
@@ -157,6 +158,19 @@ class StereoDETR(nn.Module):
                 ["depth_predictor.cost_agg."],
             )
         )
+        self.cost_preaggregation_cfg = cost_preaggregation_cfg or {}
+        self.cost_preaggregation_train_only = bool(
+            self.cost_preaggregation_cfg.get(
+                "train_only_cost_aggregation", False
+            )
+        )
+        self.cost_preaggregation_trainable_prefixes = tuple(
+            str(prefix)
+            for prefix in self.cost_preaggregation_cfg.get(
+                "trainable_prefixes",
+                ["depth_predictor.cost_agg."],
+            )
+        )
         self.geometry_depth_residual_cfg = geometry_depth_residual_cfg or {}
         self.geometry_depth_residual_enabled = bool(
             self.geometry_depth_residual_cfg.get("enabled", False)
@@ -216,15 +230,15 @@ class StereoDETR(nn.Module):
                 self.quality_freeze_detector,
                 self.depth_upsampling_train_only,
                 self.groupwise_correlation_train_only,
+                self.cost_preaggregation_train_only,
                 self.geometry_depth_residual_train_only,
                 self.axial_depth_train_only,
             )
         )
         if restricted_scopes > 1:
             raise ValueError(
-                "quality, V11 depth-only, V12 cost-aggregation and geometry "
-                "depth-residual and axial-depth training scopes are mutually "
-                "exclusive"
+                "quality, V11 depth-only, V12/V23 cost-aggregation, geometry "
+                "depth-residual and axial-depth scopes are mutually exclusive"
             )
         self.quality_score_power = float(
             self.quality_ranking_cfg.get("score_power", 1.0)
@@ -462,6 +476,12 @@ class StereoDETR(nn.Module):
                     self, self.groupwise_correlation_trainable_prefixes
                 )
             )
+        elif self.cost_preaggregation_train_only:
+            self.cost_preaggregation_trainable_parameters = (
+                freeze_except_parameter_prefixes(
+                    self, self.cost_preaggregation_trainable_prefixes
+                )
+            )
         elif self.geometry_depth_residual_train_only:
             self.geometry_depth_residual_trainable_parameters = (
                 freeze_except_parameter_prefixes(
@@ -512,6 +532,19 @@ class StereoDETR(nn.Module):
                     and not any(
                         module_name.startswith(prefix.rstrip("."))
                         for prefix in self.groupwise_correlation_trainable_prefixes
+                    )
+                ):
+                    module.eval()
+        elif self.cost_preaggregation_train_only:
+            # V23O/A/B update the same existing cost-aggregation branch.  The
+            # candidate additionally trains its zero-initialized residual
+            # pre-aggregator, while all other BatchNorm statistics stay fixed.
+            for module_name, module in self.named_modules():
+                if (
+                    isinstance(module, nn.modules.batchnorm._BatchNorm)
+                    and not any(
+                        module_name.startswith(prefix.rstrip("."))
+                        for prefix in self.cost_preaggregation_trainable_prefixes
                     )
                 ):
                     module.eval()
@@ -2043,6 +2076,7 @@ def build_StereoDETR(cfg):
         groupwise_correlation_cfg=cfg.get(
             'groupwise_correlation', {}
         ),
+        cost_preaggregation_cfg=cfg.get('cost_preaggregation', {}),
         geometry_depth_residual_cfg=cfg.get(
             'geometry_depth_residual', {}
         ),

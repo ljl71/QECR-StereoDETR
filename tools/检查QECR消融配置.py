@@ -218,11 +218,35 @@ EXPECTED_AXIAL_DEPTH_IOU = {
     },
 }
 
+EXPECTED_COST_PREAGGREGATION = {
+    "V23O_原始相关公平控制": (444, False, "none", True, []),
+    "V23A_残差式视差空间微聚合": (
+        444, True, "rdsa", False,
+        ["depth_predictor.cost_preaggregation_s4."],
+    ),
+    "V23B_分组保真空间视差预聚合": (
+        444, True, "gpsd", False,
+        ["depth_predictor.cost_preaggregation_s4."],
+    ),
+    "V23O_种子445原始相关公平控制": (445, False, "none", True, []),
+    "V23A_种子445残差式视差空间微聚合": (
+        445, True, "rdsa", False,
+        ["depth_predictor.cost_preaggregation_s4."],
+    ),
+    "V23B_种子445分组保真空间视差预聚合": (
+        445, True, "gpsd", False,
+        ["depth_predictor.cost_preaggregation_s4."],
+    ),
+}
+
+EXPECTED_V23_QUALITY_FINAL = {"V23Q_GPSD查询级质量重标定"}
+
 # These directories can be created by low-cost post-hoc diagnostics on the
 # server.  They are not trainable entries in the formal switch matrix, but
 # retaining them must not make the pre-training check fail.
 OPTIONAL_DIAGNOSTIC_VERSIONS = {
     "V03A_融合权重置零评估",
+    "V09_KITTI官网测试提交",
 }
 
 
@@ -483,6 +507,46 @@ def main():
         )
         groupwise_correlation_configs[name] = path
 
+    cost_preaggregation_configs = {}
+    for name, expected in EXPECTED_COST_PREAGGREGATION.items():
+        seed, enabled, pre_type, strict, missing_prefixes = expected
+        path = ROOT / "versions" / name / "config.yaml"
+        config = load_config(path)
+        preaggregation = config["model"]["cost_preaggregation"]
+        trainer = config["trainer"]
+        quality = config["model"]["quality_ranking"]
+        assert int(config.get("random_seed", 444)) == seed
+        assert bool(preaggregation["enabled"]) is enabled
+        assert str(preaggregation["type"]) == pre_type
+        assert int(preaggregation["scale"]) == 4
+        assert int(preaggregation["num_groups"]) == 4
+        assert int(preaggregation["expansion_ratio"]) == 2
+        assert int(preaggregation["rdsa_hidden_channels"]) == 4
+        assert float(preaggregation["residual_scale"]) == 1.0
+        assert bool(preaggregation["train_only_cost_aggregation"])
+        prefixes = ["depth_predictor.cost_agg."]
+        if enabled:
+            prefixes.append("depth_predictor.cost_preaggregation_s4.")
+        assert preaggregation["trainable_prefixes"] == prefixes
+        assert not bool(config["model"]["groupwise_correlation"]["enabled"])
+        assert not bool(config["model"]["correlation_smoothing"]["enabled"])
+        assert bool(quality["enabled"])
+        assert not bool(quality["loss_enabled"])
+        assert not bool(quality["freeze_detector"])
+        assert float(quality["score_power"]) == 1.5
+        assert int(trainer["max_epoch"]) == 5
+        assert float(config["optimizer"]["lr"]) == 0.00002
+        assert config["optimizer"]["parameter_lr_multipliers"] == {
+            "cost_preaggregation_s4": 10.0
+        }
+        assert trainer["pretrain_strict"] is strict
+        assert trainer["pretrain_allowed_missing_prefixes"] == missing_prefixes
+        assert trainer["pretrain_allow_unexpected"] is False
+        assert trainer["pretrain_model"].endswith(
+            "qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth"
+        )
+        cost_preaggregation_configs[name] = path
+
     fixed_smoothing_diagnostics = {}
     for name, expected in EXPECTED_FIXED_SMOOTHING_DIAGNOSTICS.items():
         path = ROOT / "versions" / name / "config.yaml"
@@ -595,6 +659,8 @@ def main():
         | set(EXPECTED_FIXED_SMOOTHING_DIAGNOSTICS)
         | set(EXPECTED_GEOMETRY_DEPTH_RESIDUAL)
         | set(EXPECTED_AXIAL_DEPTH_IOU)
+        | set(EXPECTED_COST_PREAGGREGATION)
+        | EXPECTED_V23_QUALITY_FINAL
     )
     missing = expected_names - actual
     unknown = actual - expected_names - OPTIONAL_DIAGNOSTIC_VERSIONS
@@ -659,6 +725,28 @@ def main():
     assert axial_smoke["trainer"]["save_path"] == (
         "outputs/第三阶段_V22轴向IoU深度损失/冒烟测试/"
     )
+    gpsd_smoke = load_config(ROOT / "configs" / "AutoDL_V23B_GPSD冒烟.yaml")
+    assert int(gpsd_smoke["trainer"]["max_epoch"]) == 1
+    assert bool(gpsd_smoke["model"]["cost_preaggregation"]["enabled"])
+    assert gpsd_smoke["model"]["cost_preaggregation"]["type"] == "gpsd"
+    assert gpsd_smoke["trainer"]["save_path"] == (
+        "outputs/V23分组保真预聚合/冒烟测试/"
+    )
+    final_quality = load_config(
+        ROOT / "versions" / "V23Q_GPSD查询级质量重标定" / "config.yaml"
+    )
+    assert final_quality["model_name"] == "qecr_v23q_gpsd_quality_recalibration"
+    assert bool(final_quality["model"]["cost_preaggregation"]["enabled"])
+    assert final_quality["model"]["cost_preaggregation"]["type"] == "gpsd"
+    assert not bool(
+        final_quality["model"]["cost_preaggregation"][
+            "train_only_cost_aggregation"
+        ]
+    )
+    assert bool(final_quality["model"]["quality_ranking"]["freeze_detector"])
+    assert bool(final_quality["model"]["quality_ranking"]["loss_enabled"])
+    assert int(final_quality["trainer"]["max_epoch"]) == 3
+    assert final_quality["trainer"]["pretrain_strict"] is True
     print("{} 个无蒸馏正式消融配置检查通过".format(len(discovered)))
     print(
         "{} 个V10冻结权重深度读出诊断配置检查通过".format(
@@ -688,6 +776,11 @@ def main():
     print(
         "{} 个V22轴向IoU敏感深度损失配置检查通过".format(
             len(axial_depth_iou_configs)
+        )
+    )
+    print(
+        "{} 个V23分组视差预聚合配置检查通过".format(
+            len(cost_preaggregation_configs)
         )
     )
     if retained_diagnostics:
