@@ -1,0 +1,13 @@
+base_config: T3_trainval_Car残差质量.yaml
+
+model_name: qlqc_car_residual_kitti_test
+
+dataset:
+  batch_size: 12
+
+trainer:
+  gpu_ids: "0"
+  amp_enabled: false
+  resume_if_exists: false
+  save_final_checkpoint: false
+  save_path: outputs/Car专项质量校准/官网测试/

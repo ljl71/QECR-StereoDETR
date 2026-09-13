@@ -1,0 +1,13 @@
+base_config: T0_trainval_StereoDETR.yaml
+
+model_name: stereodetr_global_batch16_kitti_test
+
+dataset:
+  batch_size: 12
+
+trainer:
+  gpu_ids: "0"
+  amp_enabled: false
+  resume_if_exists: false
+  save_final_checkpoint: false
+  save_path: outputs/KITTI_trainval官方批量16复核/官网测试/StereoDETR/

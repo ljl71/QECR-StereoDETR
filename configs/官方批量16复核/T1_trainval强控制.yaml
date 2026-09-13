@@ -1,0 +1,37 @@
+base_config: T0_trainval_StereoDETR.yaml
+
+# 阶段1沿用已在Chen划分验证集固定的1轮低学习率强控制配方。
+model_name: stereodetr_trainval_global_batch16_strong_control
+
+dataset:
+  matcher_mode: StereoBM
+  aug_pd: false
+  aug_crop: false
+  random_mixup3d: 0.0
+  random_flip: 0.0
+  random_crop: 0.0
+  random_switch: 0.0
+  disparity_supervision:
+    mode: scalar
+    lrc_soft_weight: false
+
+model:
+  quality_ranking:
+    enabled: false
+  geometry_alignment:
+    enabled: false
+    corner_enabled: false
+    projection_enabled: false
+
+optimizer:
+  lr: 0.00002
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 1
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/KITTI_trainval官方批量16复核/T0_StereoDETR/stereodetr_trainval_global_batch16/checkpoint_final.pth
+  pretrain_strict: true
+  save_path: outputs/KITTI_trainval官方批量16复核/T1_强控制/

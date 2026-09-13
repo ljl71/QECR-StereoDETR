@@ -158,6 +158,20 @@ model:
     pairwise_margin: 0.1
     max_pairs_per_class: 32
 
+    # 类别感知残差质量校准。默认关闭时不创建任何新参数，旧版本逐位不变。
+    # 正式Car专项配置只训练零初始化的小残差头，并围绕KITTI Car的
+    # 0.7三维IoU边界进行类内排序，另外两个类别继续读取原QLQC分数。
+    car_residual_enabled: false
+    car_residual_train_only: false
+    car_class_index: 0
+    car_residual_hidden_dim: 32
+    car_residual_max_logit: 0.5
+    car_iou_threshold: 0.7
+    car_boundary_temperature: 0.08
+    car_boundary_weight: 2.0
+    car_boundary_margin: 0.05
+    car_max_pairs_per_image: 64
+
   # V08: training-only cuboid geometry alignment. Disabled by default.
   geometry_alignment:
     enabled: false

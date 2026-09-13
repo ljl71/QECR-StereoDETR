@@ -43,6 +43,47 @@ class Query3DQualityHead(nn.Module):
         return logits.reshape(batch, queries, 1)
 
 
+class CarResidualQualityHead(nn.Module):
+    """Bounded, zero-initialized residual for Car localization quality.
+
+    The module is deliberately independent from the shared quality head.  Its
+    final projection starts at zero, so enabling the branch reproduces the
+    pretrained QLQC scores exactly before optimization.  A small bottleneck
+    and a bounded logit correction keep the full-trainval experiment
+    conservative.
+    """
+
+    def __init__(
+        self,
+        hidden_dim: int = 256,
+        bottleneck_dim: int = 32,
+        max_logit_residual: float = 0.5,
+    ) -> None:
+        super().__init__()
+        if bottleneck_dim <= 0:
+            raise ValueError("bottleneck_dim must be positive")
+        if not math.isfinite(max_logit_residual) or max_logit_residual <= 0.0:
+            raise ValueError("max_logit_residual must be finite and positive")
+        self.max_logit_residual = float(max_logit_residual)
+        self.layers = nn.Sequential(
+            nn.Linear(hidden_dim, bottleneck_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(bottleneck_dim, 1),
+        )
+        nn.init.xavier_uniform_(self.layers[0].weight)
+        nn.init.zeros_(self.layers[0].bias)
+        nn.init.zeros_(self.layers[2].weight)
+        nn.init.zeros_(self.layers[2].bias)
+
+    def forward(self, query_features: torch.Tensor) -> torch.Tensor:
+        if query_features.ndim != 3:
+            raise ValueError("query features must have shape [B, Q, C]")
+        batch, queries, channels = query_features.shape
+        residual = self.layers(query_features.reshape(-1, channels))
+        residual = torch.tanh(residual) * self.max_logit_residual
+        return residual.reshape(batch, queries, 1)
+
+
 def quality_probability_from_logits(
     quality_logits: torch.Tensor,
     score_power: float = 1.0,
@@ -245,6 +286,102 @@ def pointwise_quality_loss(
         weights,
     )
     return (weights * (quality - quality_targets).square()).sum() / weights.sum().clamp_min(1.0)
+
+
+def car_focused_quality_loss(
+    quality_logits: torch.Tensor,
+    quality_targets: torch.Tensor,
+    predicted_labels: torch.Tensor,
+    car_class_index: int = 0,
+    negative_threshold: float = 0.1,
+    negative_weight: float = 0.1,
+    iou_threshold: float = 0.7,
+    boundary_temperature: float = 0.08,
+    boundary_weight: float = 2.0,
+) -> torch.Tensor:
+    """Regress Car 3D IoU while emphasizing the KITTI decision boundary."""
+
+    if boundary_temperature <= 0.0:
+        raise ValueError("boundary_temperature must be positive")
+    if boundary_weight < 0.0:
+        raise ValueError("boundary_weight must be non-negative")
+    car_mask = predicted_labels == int(car_class_index)
+    if not car_mask.any():
+        return quality_logits.sum() * 0.0
+
+    quality = quality_logits.squeeze(-1).sigmoid()[car_mask]
+    target = quality_targets[car_mask]
+    weights = torch.ones_like(target)
+    weights = torch.where(
+        target < float(negative_threshold),
+        weights * float(negative_weight),
+        weights,
+    )
+    boundary_focus = torch.exp(
+        -(target - float(iou_threshold)).abs()
+        / float(boundary_temperature)
+    )
+    weights = weights * (1.0 + float(boundary_weight) * boundary_focus)
+    return (weights * (quality - target).square()).sum() / weights.sum().clamp_min(1.0)
+
+
+def car_boundary_pairwise_quality_loss(
+    quality_logits: torch.Tensor,
+    quality_targets: torch.Tensor,
+    predicted_labels: torch.Tensor,
+    car_class_index: int = 0,
+    iou_threshold: float = 0.7,
+    boundary_margin: float = 0.05,
+    max_pairs_per_image: int = 64,
+) -> torch.Tensor:
+    """Rank qualifying Car boxes above non-qualifying Car boxes.
+
+    Only pairs on opposite sides of the Car 3D-IoU boundary are used.  Pairs
+    inside a small ambiguity band are excluded, which avoids forcing an order
+    from numerically fragile IoU differences.
+    """
+
+    if boundary_margin < 0.0:
+        raise ValueError("boundary_margin must be non-negative")
+    if max_pairs_per_image <= 0:
+        raise ValueError("max_pairs_per_image must be positive")
+    logits = quality_logits.squeeze(-1)
+    losses: List[torch.Tensor] = []
+    upper = float(iou_threshold) + float(boundary_margin)
+    lower = float(iou_threshold) - float(boundary_margin)
+    for batch_index in range(logits.shape[0]):
+        is_car = predicted_labels[batch_index] == int(car_class_index)
+        positive = torch.nonzero(
+            is_car & (quality_targets[batch_index] >= upper),
+            as_tuple=False,
+        ).flatten()
+        negative = torch.nonzero(
+            is_car & (quality_targets[batch_index] <= lower),
+            as_tuple=False,
+        ).flatten()
+        if positive.numel() == 0 or negative.numel() == 0:
+            continue
+        pairs = torch.cartesian_prod(positive, negative)
+        if pairs.ndim == 1:
+            pairs = pairs.reshape(1, 2)
+        if pairs.shape[0] > int(max_pairs_per_image):
+            order = torch.randperm(pairs.shape[0], device=pairs.device)[
+                : int(max_pairs_per_image)
+            ]
+            pairs = pairs[order]
+        differences = (
+            logits[batch_index, pairs[:, 0]]
+            - logits[batch_index, pairs[:, 1]]
+        )
+        losses.append(
+            F.binary_cross_entropy_with_logits(
+                differences,
+                torch.ones_like(differences),
+            )
+        )
+    if not losses:
+        return logits.sum() * 0.0
+    return torch.stack(losses).mean()
 
 
 def pairwise_quality_loss(

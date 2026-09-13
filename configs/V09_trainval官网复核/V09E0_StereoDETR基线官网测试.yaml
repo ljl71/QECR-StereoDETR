@@ -1,0 +1,10 @@
+base_config: V09T0_trainval基础模型.yaml
+
+# 只用于将同环境、同trainval协议训练得到的纯StereoDETR基础模型
+# 固定权重推理到KITTI test。该配置不训练、不选优，也不启用QLQC。
+model_name: qecr_v09e0_stereodetr_reimpl_kitti_test
+
+trainer:
+  resume_if_exists: false
+  save_final_checkpoint: false
+  save_path: outputs/KITTI_trainval官网复核/官网测试/StereoDETR同环境基线/

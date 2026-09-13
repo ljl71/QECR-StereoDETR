@@ -1,0 +1,47 @@
+base_config: ../官方批量16复核/T2_trainval_QLQC.yaml
+
+# 全量trainval一次性候选：冻结现有StereoDETR与QLQC，仅训练Car残差质量头。
+model_name: qlqc_car_residual_calibration
+
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: true
+    freeze_detector: true
+    quality_only_when_frozen: true
+    score_power: 1.5
+
+    car_residual_enabled: true
+    car_residual_train_only: true
+    car_class_index: 0
+    car_residual_hidden_dim: 32
+    car_residual_max_logit: 0.5
+    car_iou_threshold: 0.7
+    car_boundary_temperature: 0.08
+    car_boundary_weight: 2.0
+    car_boundary_margin: 0.05
+    car_max_pairs_per_image: 64
+
+    point_loss_coef: 10.0
+    negative_threshold: 0.1
+    negative_weight: 0.1
+    pairwise_enabled: true
+    pairwise_loss_coef: 1.0
+
+tester:
+  quality_guided_topk: false
+
+optimizer:
+  lr: 0.001
+
+trainer:
+  max_epoch: 3
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/KITTI_trainval官方批量16复核/T2_QLQC/qlqc_trainval_global_batch16/checkpoint_final.pth
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - car_quality_head.
+  pretrain_allow_unexpected: false
+  resume_model: false
+  resume_if_exists: true
+  save_final_checkpoint: true
+  save_path: outputs/Car专项质量校准/T3_Car残差质量/
