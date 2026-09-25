@@ -22,6 +22,7 @@ from lib.models.monodetr.quality_ranking import (  # noqa: E402
     pairwise_quality_loss,
     pointwise_quality_loss,
     quality_probability_from_logits,
+    quality_supervision_mask,
 )
 
 
@@ -61,6 +62,43 @@ def main():
         car_mask, residual, torch.zeros_like(residual)
     )
     assert torch.equal(calibrated[~car_mask], base_logits[~car_mask])
+
+    ordinary_car_head = CarResidualQualityHead(
+        hidden_dim=256,
+        bottleneck_dim=32,
+        max_logit_residual=0.5,
+        bounded=False,
+        zero_init=False,
+    )
+    ordinary_residual = ordinary_car_head(features.detach())
+    assert torch.count_nonzero(ordinary_residual) > 0
+
+    matched_indices = [
+        (torch.tensor([1, 3]), torch.tensor([0, 1])),
+        (torch.tensor([0]), torch.tensor([0])),
+    ]
+    matched_mask = quality_supervision_mask(
+        targets,
+        matched_indices=matched_indices,
+        target_scope="matched",
+    )
+    assert torch.equal(
+        matched_mask,
+        torch.tensor(
+            [[False, True, False, True, False],
+             [True, False, False, False, False]]
+        ),
+    )
+    all_mask = quality_supervision_mask(targets, target_scope="all")
+    assert all_mask.all()
+    masked_logits = torch.zeros(2, 5, 1, requires_grad=True)
+    masked_loss = pointwise_quality_loss(
+        masked_logits,
+        targets,
+        valid_mask=matched_mask,
+    )
+    masked_loss.backward()
+    assert torch.count_nonzero(masked_logits.grad[~matched_mask]) == 0
 
     boundary_logits = torch.tensor(
         [[[0.0], [0.1], [-0.2], [0.4]], [[-0.1], [0.2], [0.3], [-0.4]]],

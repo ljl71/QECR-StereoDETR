@@ -1,0 +1,16 @@
+base_config: ../../versions/V09_V08O加点式三维质量排序/config.yaml
+
+random_seed: 444
+model_name: mqd_s2_all_query_without_tail_balance
+
+model:
+  quality_ranking:
+    target_scope: all
+    tail_balance_enabled: false
+    pairwise_enabled: false
+
+trainer:
+  max_epoch: 5
+  resume_model: false
+  resume_if_exists: true
+  save_path: outputs/MQD论文补充实验/S2_全查询同类监督无尾部平衡/

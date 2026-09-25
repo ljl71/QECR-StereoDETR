@@ -1,0 +1,11 @@
+base_config: B2_零初始化有界残差.yaml
+
+model_name: mqd_b3_boundary_weighted_field
+
+model:
+  quality_ranking:
+    car_boundary_weight: 2.0
+    pairwise_enabled: false
+
+trainer:
+  save_path: outputs/MQD论文补充实验/B3_边界加权决策场/

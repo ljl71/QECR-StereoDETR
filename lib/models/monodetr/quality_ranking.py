@@ -8,7 +8,7 @@ boxes and KITTI 3D IoU.  No IoU calculation is present in inference.
 from __future__ import annotations
 
 import math
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -58,6 +58,8 @@ class CarResidualQualityHead(nn.Module):
         hidden_dim: int = 256,
         bottleneck_dim: int = 32,
         max_logit_residual: float = 0.5,
+        bounded: bool = True,
+        zero_init: bool = True,
     ) -> None:
         super().__init__()
         if bottleneck_dim <= 0:
@@ -65,6 +67,8 @@ class CarResidualQualityHead(nn.Module):
         if not math.isfinite(max_logit_residual) or max_logit_residual <= 0.0:
             raise ValueError("max_logit_residual must be finite and positive")
         self.max_logit_residual = float(max_logit_residual)
+        self.bounded = bool(bounded)
+        self.zero_init = bool(zero_init)
         self.layers = nn.Sequential(
             nn.Linear(hidden_dim, bottleneck_dim),
             nn.ReLU(inplace=True),
@@ -72,16 +76,60 @@ class CarResidualQualityHead(nn.Module):
         )
         nn.init.xavier_uniform_(self.layers[0].weight)
         nn.init.zeros_(self.layers[0].bias)
-        nn.init.zeros_(self.layers[2].weight)
-        nn.init.zeros_(self.layers[2].bias)
+        if self.zero_init:
+            nn.init.zeros_(self.layers[2].weight)
+            nn.init.zeros_(self.layers[2].bias)
+        else:
+            nn.init.xavier_uniform_(self.layers[2].weight)
+            nn.init.zeros_(self.layers[2].bias)
 
     def forward(self, query_features: torch.Tensor) -> torch.Tensor:
         if query_features.ndim != 3:
             raise ValueError("query features must have shape [B, Q, C]")
         batch, queries, channels = query_features.shape
         residual = self.layers(query_features.reshape(-1, channels))
-        residual = torch.tanh(residual) * self.max_logit_residual
+        if self.bounded:
+            residual = torch.tanh(residual) * self.max_logit_residual
         return residual.reshape(batch, queries, 1)
+
+
+def quality_supervision_mask(
+    quality_targets: torch.Tensor,
+    matched_indices: Optional[
+        Sequence[Tuple[torch.Tensor, torch.Tensor]]
+    ] = None,
+    target_scope: str = "all",
+) -> torch.Tensor:
+    """Return the queries covered by a quality-supervision ablation.
+
+    ``all`` is the MQD setting and supervises every query. ``matched`` is a
+    controlled alternative that keeps only Hungarian-assigned source queries.
+    Queries outside the mask are ignored instead of being converted to
+    artificial zero-IoU negatives.
+    """
+
+    target_scope = str(target_scope).lower()
+    if target_scope == "all":
+        return torch.ones_like(quality_targets, dtype=torch.bool)
+    if target_scope != "matched":
+        raise ValueError("quality target_scope must be 'all' or 'matched'")
+    if matched_indices is None:
+        raise ValueError("matched target_scope requires Hungarian indices")
+    if len(matched_indices) != quality_targets.shape[0]:
+        raise ValueError("matched index batch does not match quality targets")
+
+    mask = torch.zeros_like(quality_targets, dtype=torch.bool)
+    for batch_index, (source_indices, _) in enumerate(matched_indices):
+        if source_indices.numel() == 0:
+            continue
+        source_indices = source_indices.to(
+            device=quality_targets.device,
+            dtype=torch.long,
+        )
+        if source_indices.min() < 0 or source_indices.max() >= quality_targets.shape[1]:
+            raise IndexError("Hungarian source query index is out of range")
+        mask[batch_index, source_indices] = True
+    return mask
 
 
 def quality_probability_from_logits(
@@ -277,6 +325,7 @@ def pointwise_quality_loss(
     quality_targets: torch.Tensor,
     negative_threshold: float = 0.1,
     negative_weight: float = 0.1,
+    valid_mask: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     quality = quality_logits.squeeze(-1).sigmoid()
     weights = torch.ones_like(quality_targets)
@@ -285,6 +334,10 @@ def pointwise_quality_loss(
         weights * float(negative_weight),
         weights,
     )
+    if valid_mask is not None:
+        if valid_mask.shape != quality_targets.shape:
+            raise ValueError("quality valid_mask shape must match targets")
+        weights = weights * valid_mask.to(weights.dtype)
     return (weights * (quality - quality_targets).square()).sum() / weights.sum().clamp_min(1.0)
 
 
@@ -298,6 +351,7 @@ def car_focused_quality_loss(
     iou_threshold: float = 0.7,
     boundary_temperature: float = 0.08,
     boundary_weight: float = 2.0,
+    valid_mask: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Regress Car 3D IoU while emphasizing the KITTI decision boundary."""
 
@@ -306,6 +360,10 @@ def car_focused_quality_loss(
     if boundary_weight < 0.0:
         raise ValueError("boundary_weight must be non-negative")
     car_mask = predicted_labels == int(car_class_index)
+    if valid_mask is not None:
+        if valid_mask.shape != quality_targets.shape:
+            raise ValueError("quality valid_mask shape must match targets")
+        car_mask = car_mask & valid_mask.to(dtype=torch.bool)
     if not car_mask.any():
         return quality_logits.sum() * 0.0
 

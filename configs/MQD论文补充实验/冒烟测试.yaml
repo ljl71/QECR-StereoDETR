@@ -1,0 +1,18 @@
+base_config: B4_完整边界决策场.yaml
+
+model_name: mqd_paper_evidence_smoke
+
+dataset:
+  train_split: train
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_mqd_paper_smoke.txt
+  test_split: train
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_mqd_paper_smoke.txt
+  batch_size: 8
+
+trainer:
+  max_epoch: 1
+  max_train_batches: 2
+  resume_model: false
+  resume_if_exists: false
+  save_final_checkpoint: true
+  save_path: outputs/MQD论文补充实验/冒烟测试/

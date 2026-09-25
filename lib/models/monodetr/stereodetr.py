@@ -40,6 +40,7 @@ from .quality_ranking import (
     pairwise_quality_loss,
     pointwise_quality_loss,
     quality_probability_from_logits,
+    quality_supervision_mask,
 )
 from .geometry_alignment import (
     corner_alignment_loss,
@@ -283,6 +284,16 @@ class StereoDETR(nn.Module):
                 max_logit_residual=float(
                     self.quality_ranking_cfg.get(
                         "car_residual_max_logit", 0.5
+                    )
+                ),
+                bounded=bool(
+                    self.quality_ranking_cfg.get(
+                        "car_residual_bounded", True
+                    )
+                ),
+                zero_init=bool(
+                    self.quality_ranking_cfg.get(
+                        "car_residual_zero_init", True
                     )
                 ),
             )
@@ -1263,6 +1274,16 @@ class SetCriterion(nn.Module):
         self.quality_pairwise_enabled = bool(
             self.quality_ranking_cfg.get("pairwise_enabled", False)
         )
+        self.quality_target_scope = str(
+            self.quality_ranking_cfg.get("target_scope", "all")
+        ).lower()
+        if self.quality_target_scope not in ("all", "matched"):
+            raise ValueError(
+                "quality_ranking.target_scope must be 'all' or 'matched'"
+            )
+        self.quality_tail_balance_enabled = bool(
+            self.quality_ranking_cfg.get("tail_balance_enabled", True)
+        )
         self.car_quality_residual_train_only = bool(
             self.quality_ranking_cfg.get("car_residual_train_only", False)
         )
@@ -1889,10 +1910,20 @@ class SetCriterion(nn.Module):
     def loss_quality_ranking(
         self, outputs, targets, indices, indices_filted, num_boxes
     ):
-        del indices, indices_filted, num_boxes
+        del indices_filted, num_boxes
         quality_targets = build_3d_iou_quality_targets(outputs, targets)
+        supervision_mask = quality_supervision_mask(
+            quality_targets,
+            matched_indices=indices,
+            target_scope=self.quality_target_scope,
+        )
         quality_logits = outputs["pred_quality_logits"]
         predicted_labels = outputs["pred_logits"].detach().sigmoid().argmax(dim=-1)
+        negative_weight = float(
+            self.quality_ranking_cfg.get("negative_weight", 0.1)
+        )
+        if not self.quality_tail_balance_enabled:
+            negative_weight = 1.0
         if self.car_quality_residual_train_only:
             point_loss = car_focused_quality_loss(
                 quality_logits,
@@ -1904,9 +1935,7 @@ class SetCriterion(nn.Module):
                 negative_threshold=float(
                     self.quality_ranking_cfg.get("negative_threshold", 0.1)
                 ),
-                negative_weight=float(
-                    self.quality_ranking_cfg.get("negative_weight", 0.1)
-                ),
+                negative_weight=negative_weight,
                 iou_threshold=float(
                     self.quality_ranking_cfg.get("car_iou_threshold", 0.7)
                 ),
@@ -1916,6 +1945,7 @@ class SetCriterion(nn.Module):
                 boundary_weight=float(
                     self.quality_ranking_cfg.get("car_boundary_weight", 2.0)
                 ),
+                valid_mask=supervision_mask,
             )
         else:
             point_loss = pointwise_quality_loss(
@@ -1924,9 +1954,8 @@ class SetCriterion(nn.Module):
                 negative_threshold=float(
                     self.quality_ranking_cfg.get("negative_threshold", 0.1)
                 ),
-                negative_weight=float(
-                    self.quality_ranking_cfg.get("negative_weight", 0.1)
-                ),
+                negative_weight=negative_weight,
+                valid_mask=supervision_mask,
             )
         losses = {"loss_quality_point": point_loss}
         if self.quality_pairwise_enabled:
@@ -2100,8 +2129,20 @@ class SetCriterion(nn.Module):
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
         if self.quality_only:
+            quality_indices = None
+            if self.quality_target_scope == "matched":
+                outputs_without_aux = {
+                    key: value for key, value in outputs.items()
+                    if key != "aux_outputs"
+                }
+                group_num = self.group_num if self.training else 1
+                quality_indices, _ = self.matcher(
+                    outputs_without_aux,
+                    targets,
+                    group_num=group_num,
+                )
             return self.loss_quality_ranking(
-                outputs, targets, None, None, None
+                outputs, targets, quality_indices, None, None
             )
 
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
