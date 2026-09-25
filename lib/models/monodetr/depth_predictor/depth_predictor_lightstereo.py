@@ -320,6 +320,182 @@ def correlation_volume_flip(left_feature, right_feature, max_disp):
     return cost_volume
 
 
+def groupwise_correlation_volume(
+    left_feature,
+    right_feature,
+    max_disp,
+    num_groups=4,
+    flip=False,
+):
+    """Build a group-preserving ``[B,G,D,H,W]`` correlation volume."""
+    if left_feature.shape != right_feature.shape:
+        raise ValueError("left and right features must have identical shapes")
+    if left_feature.ndim != 4:
+        raise ValueError("stereo features must be [B,C,H,W]")
+    batch, channels, height, width = left_feature.shape
+    max_disp = int(max_disp)
+    num_groups = int(num_groups)
+    if max_disp <= 0:
+        raise ValueError("max_disp must be positive")
+    if num_groups <= 1 or channels % num_groups != 0:
+        raise ValueError(
+            "feature channels must be divisible by a num_groups value > 1"
+        )
+
+    channels_per_group = channels // num_groups
+    left_grouped = left_feature.reshape(
+        batch, num_groups, channels_per_group, height, width
+    )
+    right_grouped = right_feature.reshape(
+        batch, num_groups, channels_per_group, height, width
+    )
+    volume = left_feature.new_zeros(
+        batch, num_groups, max_disp, height, width
+    )
+    for disparity in range(max_disp):
+        if disparity == 0:
+            volume[:, :, disparity] = (
+                left_grouped * right_grouped
+            ).mean(dim=2)
+        elif flip:
+            volume[:, :, disparity, :, disparity:] = (
+                left_grouped[:, :, :, :, :-disparity]
+                * right_grouped[:, :, :, :, disparity:]
+            ).mean(dim=2)
+        else:
+            volume[:, :, disparity, :, disparity:] = (
+                left_grouped[:, :, :, :, disparity:]
+                * right_grouped[:, :, :, :, :-disparity]
+            ).mean(dim=2)
+    return volume.contiguous()
+
+
+class ResidualDisparitySpaceMicroAggregation(nn.Module):
+    """V23A: a zero-initialized micro-aggregator in disparity space."""
+
+    def __init__(self, hidden_channels=4, residual_scale=1.0):
+        super().__init__()
+        self.hidden_channels = int(hidden_channels)
+        self.residual_scale = float(residual_scale)
+        if self.hidden_channels <= 0:
+            raise ValueError("RDSA hidden_channels must be positive")
+        if not math.isfinite(self.residual_scale):
+            raise ValueError("RDSA residual_scale must be finite")
+
+        self.aggregate = nn.Sequential(
+            nn.Conv3d(1, self.hidden_channels, 3, padding=1, bias=False),
+            nn.BatchNorm3d(self.hidden_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(
+                self.hidden_channels,
+                self.hidden_channels,
+                3,
+                padding=1,
+                bias=False,
+            ),
+            nn.BatchNorm3d(self.hidden_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(self.hidden_channels, 1, 3, padding=1, bias=False),
+            nn.BatchNorm3d(1),
+        )
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv3d):
+                nn.init.kaiming_normal_(module.weight, mode="fan_out")
+        final_norm = self.aggregate[-1]
+        nn.init.zeros_(final_norm.weight)
+        nn.init.zeros_(final_norm.bias)
+
+    def forward(self, baseline_cost):
+        if baseline_cost.ndim != 4:
+            raise ValueError("RDSA expects [B,D,H,W]")
+        residual = self.aggregate(baseline_cost.unsqueeze(1)).squeeze(1)
+        return baseline_cost + self.residual_scale * residual
+
+
+class GroupPreservingSpatialDisparityPreAggregation(nn.Module):
+    """V23B: mix group, disparity and spatial evidence before aggregation.
+
+    Group and disparity axes are folded into channels for a lightweight
+    inverted-residual 2D mixer.  Its result is added to the untouched scalar
+    correlation main path, and a zero-initialized final normalization makes
+    the first forward exactly reproduce the V09 baseline.
+    """
+
+    def __init__(
+        self,
+        num_groups=4,
+        num_disparities=24,
+        expansion_ratio=2,
+        residual_scale=1.0,
+    ):
+        super().__init__()
+        self.num_groups = int(num_groups)
+        self.num_disparities = int(num_disparities)
+        self.expansion_ratio = int(expansion_ratio)
+        self.residual_scale = float(residual_scale)
+        if self.num_groups <= 1 or self.num_disparities <= 0:
+            raise ValueError("GPSD requires groups > 1 and disparities > 0")
+        if self.expansion_ratio <= 0:
+            raise ValueError("GPSD expansion_ratio must be positive")
+        if not math.isfinite(self.residual_scale):
+            raise ValueError("GPSD residual_scale must be finite")
+
+        input_channels = self.num_groups * self.num_disparities
+        hidden_channels = input_channels * self.expansion_ratio
+        self.pre_aggregate = nn.Sequential(
+            nn.Conv2d(input_channels, hidden_channels, 1, bias=False),
+            nn.BatchNorm2d(hidden_channels),
+            nn.ReLU6(inplace=True),
+            nn.Conv2d(
+                hidden_channels,
+                hidden_channels,
+                3,
+                padding=1,
+                groups=hidden_channels,
+                bias=False,
+            ),
+            nn.BatchNorm2d(hidden_channels),
+            nn.ReLU6(inplace=True),
+            nn.Conv2d(hidden_channels, self.num_disparities, 1, bias=False),
+            nn.BatchNorm2d(self.num_disparities),
+        )
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight, mode="fan_out")
+        final_norm = self.pre_aggregate[-1]
+        nn.init.zeros_(final_norm.weight)
+        nn.init.zeros_(final_norm.bias)
+
+    def forward(self, baseline_cost, groupwise_cost):
+        if baseline_cost.ndim != 4:
+            raise ValueError("GPSD baseline cost must be [B,D,H,W]")
+        if groupwise_cost.ndim != 5:
+            raise ValueError("GPSD groupwise cost must be [B,G,D,H,W]")
+        batch, groups, disparities, height, width = groupwise_cost.shape
+        if groups != self.num_groups or disparities != self.num_disparities:
+            raise ValueError(
+                "GPSD expected G={}, D={} but received G={}, D={}".format(
+                    self.num_groups,
+                    self.num_disparities,
+                    groups,
+                    disparities,
+                )
+            )
+        if baseline_cost.shape != (batch, disparities, height, width):
+            raise ValueError("GPSD baseline and groupwise cost shapes disagree")
+        folded = groupwise_cost.reshape(
+            batch, groups * disparities, height, width
+        )
+        residual = self.pre_aggregate(folded)
+        return baseline_cost + self.residual_scale * residual
+
+
 def spatially_regularize_correlation(
     cost_volume,
     enabled=False,
@@ -630,6 +806,67 @@ class LightStereoDepthPredictor(nn.Module):
         ):
             raise ValueError("correlation smoothing blend must be in [0,1]")
 
+        preaggregation_cfg = model_cfg.get("cost_preaggregation", {})
+        preaggregation_enabled = bool(
+            preaggregation_cfg.get("enabled", False)
+        )
+        self.cost_preaggregation_type = str(
+            preaggregation_cfg.get("type", "none")
+        ).strip().lower()
+        if not preaggregation_enabled:
+            self.cost_preaggregation_type = "none"
+        if self.cost_preaggregation_type not in {"none", "rdsa", "gpsd"}:
+            raise ValueError(
+                "cost_preaggregation.type must be none, rdsa or gpsd"
+            )
+        self.cost_preaggregation_scale = int(
+            preaggregation_cfg.get("scale", 4)
+        )
+        self.cost_preaggregation_groups = int(
+            preaggregation_cfg.get("num_groups", 4)
+        )
+        if (
+            self.cost_preaggregation_type != "none"
+            and self.cost_preaggregation_scale != 4
+        ):
+            raise ValueError("V23 pre-aggregation currently supports only s4")
+        if (
+            self.cost_preaggregation_type != "none"
+            and self.groupwise_correlation_enabled
+        ):
+            raise ValueError("V12 groupwise gate and V23 pre-aggregation conflict")
+        if (
+            self.cost_preaggregation_type != "none"
+            and self.correlation_smoothing_enabled
+        ):
+            raise ValueError("V14 smoothing and V23 pre-aggregation conflict")
+
+        self.cost_preaggregation_s4 = None
+        if self.cost_preaggregation_type == "rdsa":
+            self.cost_preaggregation_s4 = (
+                ResidualDisparitySpaceMicroAggregation(
+                    hidden_channels=int(
+                        preaggregation_cfg.get("rdsa_hidden_channels", 4)
+                    ),
+                    residual_scale=float(
+                        preaggregation_cfg.get("residual_scale", 1.0)
+                    ),
+                )
+            )
+        elif self.cost_preaggregation_type == "gpsd":
+            self.cost_preaggregation_s4 = (
+                GroupPreservingSpatialDisparityPreAggregation(
+                    num_groups=self.cost_preaggregation_groups,
+                    num_disparities=96 // 4,
+                    expansion_ratio=int(
+                        preaggregation_cfg.get("expansion_ratio", 2)
+                    ),
+                    residual_scale=float(
+                        preaggregation_cfg.get("residual_scale", 1.0)
+                    ),
+                )
+            )
+
         # Create modules
         d_model = model_cfg["hidden_dim"]
         self.downsample = nn.Sequential(
@@ -744,6 +981,7 @@ class LightStereoDepthPredictor(nn.Module):
             gwc_volume_list4 = []
             gwc_volume_list8 = []
             gwc_volume_list16 = []
+            group_volume_list4 = []
             for  batch_id in range(batch_size_half):
                 flip_flag = targets[batch_id]["random_flip_flag"]
                 switch_flag = targets[batch_id]["random_switch_flag"]
@@ -767,6 +1005,16 @@ class LightStereoDepthPredictor(nn.Module):
                         gwc_volume_list4.append(correlation_volume_flip(f_left_i_s4, f_right_i_s4, 96 // 4)) 
                     gwc_volume_list8.append(correlation_volume_flip(f_left_i_s8, f_right_i_s8, 192 // 8))
                     gwc_volume_list16.append(correlation_volume_flip(f_left_i_s16, f_right_i_s16, 192 // 16))
+                    if self.cost_preaggregation_type == "gpsd":
+                        group_volume_list4.append(
+                            groupwise_correlation_volume(
+                                f_left_i_s4,
+                                f_right_i_s4,
+                                96 // 4,
+                                num_groups=self.cost_preaggregation_groups,
+                                flip=True,
+                            )
+                        )
                 else:
                     if self.groupwise_correlation_enabled:
                         gwc_volume_list4.append(
@@ -780,9 +1028,23 @@ class LightStereoDepthPredictor(nn.Module):
                         gwc_volume_list4.append(correlation_volume(f_left_i_s4, f_right_i_s4, 96 // 4))
                     gwc_volume_list8.append(correlation_volume(f_left_i_s8, f_right_i_s8, 192 // 8)) # 192/8
                     gwc_volume_list16.append(correlation_volume(f_left_i_s16, f_right_i_s16, 192 // 16))
+                    if self.cost_preaggregation_type == "gpsd":
+                        group_volume_list4.append(
+                            groupwise_correlation_volume(
+                                f_left_i_s4,
+                                f_right_i_s4,
+                                96 // 4,
+                                num_groups=self.cost_preaggregation_groups,
+                            )
+                        )
             gwc_volume_s4 = torch.cat(gwc_volume_list4, 0)
             gwc_volume_s8 = torch.cat(gwc_volume_list8, 0)
             gwc_volume_s16 = torch.cat(gwc_volume_list16, 0)
+            group_volume_s4 = (
+                torch.cat(group_volume_list4, 0)
+                if group_volume_list4
+                else None
+            )
         else:         
             if self.groupwise_correlation_enabled:
                 gwc_volume_s4 = self.groupwise_correlation_s4(
@@ -800,6 +1062,14 @@ class LightStereoDepthPredictor(nn.Module):
             gwc_volume_s16 = correlation_volume(feature_stereo[2][:batch_size_half], 
                                                feature_stereo[2][batch_size_half:], 
                                                192 // 16)
+            group_volume_s4 = None
+            if self.cost_preaggregation_type == "gpsd":
+                group_volume_s4 = groupwise_correlation_volume(
+                    feature_stereo[0][:batch_size_half],
+                    feature_stereo[0][batch_size_half:],
+                    96 // 4,
+                    num_groups=self.cost_preaggregation_groups,
+                )
         gwc_volume_s4 = spatially_regularize_correlation(
             gwc_volume_s4,
             enabled=self.correlation_smoothing_enabled,
@@ -807,6 +1077,14 @@ class LightStereoDepthPredictor(nn.Module):
             blend=self.correlation_smoothing_blend,
             passes=self.correlation_smoothing_passes,
         )
+        if self.cost_preaggregation_type == "rdsa":
+            gwc_volume_s4 = self.cost_preaggregation_s4(gwc_volume_s4)
+        elif self.cost_preaggregation_type == "gpsd":
+            if group_volume_s4 is None:
+                raise RuntimeError("GPSD group-preserving volume was not built")
+            gwc_volume_s4 = self.cost_preaggregation_s4(
+                gwc_volume_s4, group_volume_s4
+            )
         features_left = []
         for i in range(len(feature_stereo)):
             # features_left.append(feature_stereo[i][batch_size_half:])

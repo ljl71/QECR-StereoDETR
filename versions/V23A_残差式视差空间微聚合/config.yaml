@@ -1,0 +1,24 @@
+base_config: ../V23O_原始相关公平控制/config.yaml
+
+model_name: qecr_v23a_rdsa
+
+# V23A是等参数范围的D-H-W微聚合控制。新增分支零初始化，首次前向
+# 与V23O严格一致，用于区分“任意局部聚合”与“保留分组信息”的作用。
+model:
+  cost_preaggregation:
+    enabled: true
+    type: rdsa
+    scale: 4
+    rdsa_hidden_channels: 4
+    residual_scale: 1.0
+    train_only_cost_aggregation: true
+    trainable_prefixes:
+      - depth_predictor.cost_agg.
+      - depth_predictor.cost_preaggregation_s4.
+
+trainer:
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - depth_predictor.cost_preaggregation_s4.
+  pretrain_allow_unexpected: false
+  save_path: outputs/V23分组保真预聚合/V23A_残差式视差空间微聚合/

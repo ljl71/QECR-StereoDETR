@@ -1,0 +1,35 @@
+base_config: ../../versions/V09_V08O加点式三维质量排序/config.yaml
+
+random_seed: 444
+model_name: mqd_b1_plain_car_residual
+
+model:
+  quality_ranking:
+    car_residual_enabled: true
+    car_residual_train_only: true
+    car_class_index: 0
+    car_residual_hidden_dim: 32
+    car_residual_max_logit: 0.5
+    car_residual_bounded: false
+    car_residual_zero_init: false
+    car_iou_threshold: 0.7
+    car_boundary_temperature: 0.08
+    car_boundary_weight: 0.0
+    car_boundary_margin: 0.05
+    car_max_pairs_per_image: 64
+    pairwise_enabled: false
+    pairwise_loss_coef: 1.0
+
+optimizer:
+  lr: 0.001
+
+trainer:
+  max_epoch: 3
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/最终组合_V09/V09_V08O加点式三维质量排序/qecr_v09_v08o_pointwise_3d_quality/checkpoint_best.pth
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - car_quality_head.
+  pretrain_allow_unexpected: false
+  resume_model: false
+  resume_if_exists: true
+  save_path: outputs/MQD论文补充实验/B1_普通Car残差/

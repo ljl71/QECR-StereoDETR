@@ -1,0 +1,36 @@
+base_config: ../V23B_分组保真空间视差预聚合/config.yaml
+
+model_name: qecr_v23q_gpsd_quality_recalibration
+
+# 只在GPSD通过双种子和时延复核后运行。固定V23B检测器及GPSD，重新
+# 校准已有QLQC质量头3轮，使更新后的几何候选获得匹配的三维质量分数。
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: true
+    freeze_detector: true
+    quality_only_when_frozen: true
+    score_power: 1.5
+    point_loss_coef: 10.0
+    negative_threshold: 0.1
+    negative_weight: 0.1
+    pairwise_enabled: false
+
+  cost_preaggregation:
+    enabled: true
+    type: gpsd
+    train_only_cost_aggregation: false
+
+optimizer:
+  lr: 0.001
+  parameter_lr_multipliers: {}
+
+trainer:
+  max_epoch: 3
+  save_frequency: 1
+  save_all: false
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/V23分组保真预聚合/V23B_分组保真空间视差预聚合/qecr_v23b_gpsd/checkpoint_best.pth
+  pretrain_strict: true
+  pretrain_allowed_missing_prefixes: []
+  pretrain_allow_unexpected: false
+  save_path: outputs/V23分组保真预聚合/V23Q_GPSD查询级质量重标定/

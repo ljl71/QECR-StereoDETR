@@ -32,11 +32,15 @@ from .query_depth import (
     UncertaintyGeometryGate,
 )
 from .quality_ranking import (
+    CarResidualQualityHead,
     Query3DQualityHead,
     build_3d_iou_quality_targets,
+    car_boundary_pairwise_quality_loss,
+    car_focused_quality_loss,
     pairwise_quality_loss,
     pointwise_quality_loss,
     quality_probability_from_logits,
+    quality_supervision_mask,
 )
 from .geometry_alignment import (
     corner_alignment_loss,
@@ -87,6 +91,7 @@ class StereoDETR(nn.Module):
                  quality_ranking_cfg=None, geometry_alignment_cfg=None,
                  dynamic_depth_upsampling_cfg=None,
                  groupwise_correlation_cfg=None,
+                 cost_preaggregation_cfg=None,
                  geometry_depth_residual_cfg=None,
                  axial_depth_iou_cfg=None):
 
@@ -129,6 +134,26 @@ class StereoDETR(nn.Module):
         self.quality_freeze_detector = bool(
             self.quality_ranking_cfg.get("freeze_detector", False)
         )
+        self.car_quality_residual_enabled = bool(
+            self.quality_ranking_cfg.get("car_residual_enabled", False)
+        )
+        self.car_quality_residual_train_only = bool(
+            self.quality_ranking_cfg.get("car_residual_train_only", False)
+        )
+        self.car_quality_class_index = int(
+            self.quality_ranking_cfg.get("car_class_index", 0)
+        )
+        if self.car_quality_residual_enabled and not self.quality_ranking_enabled:
+            raise ValueError(
+                "quality_ranking.car_residual_enabled requires quality ranking"
+            )
+        if (
+            self.car_quality_residual_train_only
+            and not self.car_quality_residual_enabled
+        ):
+            raise ValueError(
+                "car_residual_train_only requires car_residual_enabled"
+            )
         self.dynamic_depth_upsampling_cfg = (
             dynamic_depth_upsampling_cfg or {}
         )
@@ -153,6 +178,19 @@ class StereoDETR(nn.Module):
         self.groupwise_correlation_trainable_prefixes = tuple(
             str(prefix)
             for prefix in self.groupwise_correlation_cfg.get(
+                "trainable_prefixes",
+                ["depth_predictor.cost_agg."],
+            )
+        )
+        self.cost_preaggregation_cfg = cost_preaggregation_cfg or {}
+        self.cost_preaggregation_train_only = bool(
+            self.cost_preaggregation_cfg.get(
+                "train_only_cost_aggregation", False
+            )
+        )
+        self.cost_preaggregation_trainable_prefixes = tuple(
+            str(prefix)
+            for prefix in self.cost_preaggregation_cfg.get(
                 "trainable_prefixes",
                 ["depth_predictor.cost_agg."],
             )
@@ -216,15 +254,15 @@ class StereoDETR(nn.Module):
                 self.quality_freeze_detector,
                 self.depth_upsampling_train_only,
                 self.groupwise_correlation_train_only,
+                self.cost_preaggregation_train_only,
                 self.geometry_depth_residual_train_only,
                 self.axial_depth_train_only,
             )
         )
         if restricted_scopes > 1:
             raise ValueError(
-                "quality, V11 depth-only, V12 cost-aggregation and geometry "
-                "depth-residual and axial-depth training scopes are mutually "
-                "exclusive"
+                "quality, V11 depth-only, V12/V23 cost-aggregation, geometry "
+                "depth-residual and axial-depth scopes are mutually exclusive"
             )
         self.quality_score_power = float(
             self.quality_ranking_cfg.get("score_power", 1.0)
@@ -235,6 +273,30 @@ class StereoDETR(nn.Module):
             )
         if self.quality_ranking_enabled:
             self.quality_head = Query3DQualityHead(hidden_dim=hidden_dim)
+        if self.car_quality_residual_enabled:
+            self.car_quality_head = CarResidualQualityHead(
+                hidden_dim=hidden_dim,
+                bottleneck_dim=int(
+                    self.quality_ranking_cfg.get(
+                        "car_residual_hidden_dim", 32
+                    )
+                ),
+                max_logit_residual=float(
+                    self.quality_ranking_cfg.get(
+                        "car_residual_max_logit", 0.5
+                    )
+                ),
+                bounded=bool(
+                    self.quality_ranking_cfg.get(
+                        "car_residual_bounded", True
+                    )
+                ),
+                zero_init=bool(
+                    self.quality_ranking_cfg.get(
+                        "car_residual_zero_init", True
+                    )
+                ),
+            )
 
         prior_prob = 0.01
         bias_value = -math.log((1 - prior_prob) / prior_prob)
@@ -448,8 +510,15 @@ class StereoDETR(nn.Module):
                                      align_by_3d_center=True)
 
         if self.quality_ranking_enabled and self.quality_freeze_detector:
-            for name, parameter in self.named_parameters():
-                parameter.requires_grad_(name.startswith("quality_head."))
+            if self.car_quality_residual_train_only:
+                trainable_prefixes = ("car_quality_head.",)
+            else:
+                trainable_prefixes = ("quality_head.",)
+                if self.car_quality_residual_enabled:
+                    trainable_prefixes += ("car_quality_head.",)
+            self.quality_trainable_parameters = freeze_except_parameter_prefixes(
+                self, trainable_prefixes
+            )
         elif self.depth_upsampling_train_only:
             self.depth_upsampling_trainable_parameters = (
                 freeze_except_parameter_prefixes(
@@ -460,6 +529,12 @@ class StereoDETR(nn.Module):
             self.groupwise_correlation_trainable_parameters = (
                 freeze_except_parameter_prefixes(
                     self, self.groupwise_correlation_trainable_prefixes
+                )
+            )
+        elif self.cost_preaggregation_train_only:
+            self.cost_preaggregation_trainable_parameters = (
+                freeze_except_parameter_prefixes(
+                    self, self.cost_preaggregation_trainable_prefixes
                 )
             )
         elif self.geometry_depth_residual_train_only:
@@ -485,10 +560,17 @@ class StereoDETR(nn.Module):
             for module_name, module in self.named_modules():
                 if (
                     not module_name.startswith("quality_head")
+                    and not module_name.startswith("car_quality_head")
                     and isinstance(module, nn.modules.batchnorm._BatchNorm)
                 ):
                     module.eval()
-            self.quality_head.train(mode)
+            if self.car_quality_residual_train_only:
+                self.quality_head.eval()
+                self.car_quality_head.train(mode)
+            else:
+                self.quality_head.train(mode)
+                if self.car_quality_residual_enabled:
+                    self.car_quality_head.train(mode)
         elif self.depth_upsampling_train_only:
             # Keep all frozen BatchNorm statistics fixed.  The original
             # depth-classifier BatchNorm layers remain trainable in both V11O
@@ -512,6 +594,19 @@ class StereoDETR(nn.Module):
                     and not any(
                         module_name.startswith(prefix.rstrip("."))
                         for prefix in self.groupwise_correlation_trainable_prefixes
+                    )
+                ):
+                    module.eval()
+        elif self.cost_preaggregation_train_only:
+            # V23O/A/B update the same existing cost-aggregation branch.  The
+            # candidate additionally trains its zero-initialized residual
+            # pre-aggregator, while all other BatchNorm statistics stay fixed.
+            for module_name, module in self.named_modules():
+                if (
+                    isinstance(module, nn.modules.batchnorm._BatchNorm)
+                    and not any(
+                        module_name.startswith(prefix.rstrip("."))
+                        for prefix in self.cost_preaggregation_trainable_prefixes
                     )
                 ):
                     module.eval()
@@ -905,7 +1000,31 @@ class StereoDETR(nn.Module):
             quality_features = hs[-1]
             if self.quality_freeze_detector:
                 quality_features = quality_features.detach()
-            quality_logits = self.quality_head(quality_features)
+            base_quality_logits = self.quality_head(quality_features)
+            quality_logits = base_quality_logits
+            if self.car_quality_residual_enabled:
+                car_residual = self.car_quality_head(quality_features)
+                predicted_labels = outputs_class[-1].detach().sigmoid().argmax(
+                    dim=-1
+                )
+                car_mask = (
+                    predicted_labels == self.car_quality_class_index
+                ).unsqueeze(-1)
+                quality_logits = quality_logits + torch.where(
+                    car_mask,
+                    car_residual,
+                    torch.zeros_like(car_residual),
+                )
+                out['pred_car_quality_residual'] = car_residual
+                out['pred_quality_base'] = quality_probability_from_logits(
+                    base_quality_logits,
+                    score_power=self.quality_score_power,
+                )
+                out['pred_quality_car'] = quality_probability_from_logits(
+                    quality_logits,
+                    score_power=self.quality_score_power,
+                )
+                out['quality_car_class_index'] = self.car_quality_class_index
             out['pred_quality_logits'] = quality_logits
             out['pred_quality'] = quality_probability_from_logits(
                 quality_logits,
@@ -1154,6 +1273,19 @@ class SetCriterion(nn.Module):
         )
         self.quality_pairwise_enabled = bool(
             self.quality_ranking_cfg.get("pairwise_enabled", False)
+        )
+        self.quality_target_scope = str(
+            self.quality_ranking_cfg.get("target_scope", "all")
+        ).lower()
+        if self.quality_target_scope not in ("all", "matched"):
+            raise ValueError(
+                "quality_ranking.target_scope must be 'all' or 'matched'"
+            )
+        self.quality_tail_balance_enabled = bool(
+            self.quality_ranking_cfg.get("tail_balance_enabled", True)
+        )
+        self.car_quality_residual_train_only = bool(
+            self.quality_ranking_cfg.get("car_residual_train_only", False)
         )
         self.quality_only = bool(
             self.quality_ranking_enabled
@@ -1778,32 +1910,87 @@ class SetCriterion(nn.Module):
     def loss_quality_ranking(
         self, outputs, targets, indices, indices_filted, num_boxes
     ):
-        del indices, indices_filted, num_boxes
+        del indices_filted, num_boxes
         quality_targets = build_3d_iou_quality_targets(outputs, targets)
+        supervision_mask = quality_supervision_mask(
+            quality_targets,
+            matched_indices=indices,
+            target_scope=self.quality_target_scope,
+        )
         quality_logits = outputs["pred_quality_logits"]
-        losses = {
-            "loss_quality_point": pointwise_quality_loss(
+        predicted_labels = outputs["pred_logits"].detach().sigmoid().argmax(dim=-1)
+        negative_weight = float(
+            self.quality_ranking_cfg.get("negative_weight", 0.1)
+        )
+        if not self.quality_tail_balance_enabled:
+            negative_weight = 1.0
+        if self.car_quality_residual_train_only:
+            point_loss = car_focused_quality_loss(
+                quality_logits,
+                quality_targets,
+                predicted_labels,
+                car_class_index=int(
+                    self.quality_ranking_cfg.get("car_class_index", 0)
+                ),
+                negative_threshold=float(
+                    self.quality_ranking_cfg.get("negative_threshold", 0.1)
+                ),
+                negative_weight=negative_weight,
+                iou_threshold=float(
+                    self.quality_ranking_cfg.get("car_iou_threshold", 0.7)
+                ),
+                boundary_temperature=float(
+                    self.quality_ranking_cfg.get("car_boundary_temperature", 0.08)
+                ),
+                boundary_weight=float(
+                    self.quality_ranking_cfg.get("car_boundary_weight", 2.0)
+                ),
+                valid_mask=supervision_mask,
+            )
+        else:
+            point_loss = pointwise_quality_loss(
                 quality_logits,
                 quality_targets,
                 negative_threshold=float(
                     self.quality_ranking_cfg.get("negative_threshold", 0.1)
                 ),
-                negative_weight=float(
-                    self.quality_ranking_cfg.get("negative_weight", 0.1)
-                ),
+                negative_weight=negative_weight,
+                valid_mask=supervision_mask,
             )
-        }
+        losses = {"loss_quality_point": point_loss}
         if self.quality_pairwise_enabled:
-            predicted_labels = outputs["pred_logits"].detach().sigmoid().argmax(dim=-1)
-            losses["loss_quality_pair"] = pairwise_quality_loss(
-                quality_logits,
-                quality_targets,
-                predicted_labels,
-                margin=float(self.quality_ranking_cfg.get("pairwise_margin", 0.1)),
-                max_pairs_per_class=int(
-                    self.quality_ranking_cfg.get("max_pairs_per_class", 32)
-                ),
-            )
+            if self.car_quality_residual_train_only:
+                losses["loss_quality_pair"] = car_boundary_pairwise_quality_loss(
+                    quality_logits,
+                    quality_targets,
+                    predicted_labels,
+                    car_class_index=int(
+                        self.quality_ranking_cfg.get("car_class_index", 0)
+                    ),
+                    iou_threshold=float(
+                        self.quality_ranking_cfg.get("car_iou_threshold", 0.7)
+                    ),
+                    boundary_margin=float(
+                        self.quality_ranking_cfg.get("car_boundary_margin", 0.05)
+                    ),
+                    max_pairs_per_image=int(
+                        self.quality_ranking_cfg.get(
+                            "car_max_pairs_per_image", 64
+                        )
+                    ),
+                )
+            else:
+                losses["loss_quality_pair"] = pairwise_quality_loss(
+                    quality_logits,
+                    quality_targets,
+                    predicted_labels,
+                    margin=float(
+                        self.quality_ranking_cfg.get("pairwise_margin", 0.1)
+                    ),
+                    max_pairs_per_class=int(
+                        self.quality_ranking_cfg.get("max_pairs_per_class", 32)
+                    ),
+                )
         return losses
 
     def _get_src_permutation_idx(self, indices):
@@ -1942,8 +2129,20 @@ class SetCriterion(nn.Module):
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
         if self.quality_only:
+            quality_indices = None
+            if self.quality_target_scope == "matched":
+                outputs_without_aux = {
+                    key: value for key, value in outputs.items()
+                    if key != "aux_outputs"
+                }
+                group_num = self.group_num if self.training else 1
+                quality_indices, _ = self.matcher(
+                    outputs_without_aux,
+                    targets,
+                    group_num=group_num,
+                )
             return self.loss_quality_ranking(
-                outputs, targets, None, None, None
+                outputs, targets, quality_indices, None, None
             )
 
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
@@ -2043,6 +2242,7 @@ def build_StereoDETR(cfg):
         groupwise_correlation_cfg=cfg.get(
             'groupwise_correlation', {}
         ),
+        cost_preaggregation_cfg=cfg.get('cost_preaggregation', {}),
         geometry_depth_residual_cfg=cfg.get(
             'geometry_depth_residual', {}
         ),

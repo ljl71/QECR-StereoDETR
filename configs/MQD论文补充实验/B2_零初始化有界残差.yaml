@@ -1,0 +1,13 @@
+base_config: B1_普通Car残差.yaml
+
+model_name: mqd_b2_bounded_zero_init_residual
+
+model:
+  quality_ranking:
+    car_residual_bounded: true
+    car_residual_zero_init: true
+    car_boundary_weight: 0.0
+    pairwise_enabled: false
+
+trainer:
+  save_path: outputs/MQD论文补充实验/B2_零初始化有界残差/

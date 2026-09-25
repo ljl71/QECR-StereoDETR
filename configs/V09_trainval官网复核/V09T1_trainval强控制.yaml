@@ -1,0 +1,38 @@
+base_config: V09T0_trainval基础模型.yaml
+
+# 固定协议阶段1：复现V08O在验证集上预先选定的第1轮低学习率续训。
+# 这里只改变训练配方，不增加QLQC结构，是官网配对实验的直接控制组。
+model_name: qecr_v09t1_trainval_strong_control
+
+dataset:
+  matcher_mode: StereoBM
+  aug_pd: false
+  aug_crop: false
+  random_mixup3d: 0.0
+  random_flip: 0.0
+  random_crop: 0.0
+  random_switch: 0.0
+  disparity_supervision:
+    mode: scalar
+    lrc_soft_weight: false
+
+model:
+  quality_ranking:
+    enabled: false
+  geometry_alignment:
+    enabled: false
+    corner_enabled: false
+    projection_enabled: false
+
+optimizer:
+  lr: 0.00002
+
+lr_scheduler:
+  warmup: false
+  decay_list: [1000]
+
+trainer:
+  max_epoch: 1
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/KITTI_trainval官网复核/V09T0_trainval基础模型/qecr_v09t0_trainval_stereodetr/checkpoint_final.pth
+  pretrain_strict: true
+  save_path: outputs/KITTI_trainval官网复核/V09T1_trainval强控制/

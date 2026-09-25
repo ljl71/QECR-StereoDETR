@@ -1,0 +1,8 @@
+base_config: B4_完整边界决策场.yaml
+
+random_seed: 445
+model_name: mqd_b4_complete_boundary_decision_field_seed445
+
+trainer:
+  resume_if_exists: true
+  save_path: outputs/MQD论文补充实验/B4_完整边界决策场_种子445/

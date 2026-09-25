@@ -1,0 +1,11 @@
+base_config: B3_边界加权决策场.yaml
+
+model_name: mqd_b4_complete_boundary_decision_field
+
+model:
+  quality_ranking:
+    pairwise_enabled: true
+    pairwise_loss_coef: 1.0
+
+trainer:
+  save_path: outputs/MQD论文补充实验/B4_完整边界决策场/

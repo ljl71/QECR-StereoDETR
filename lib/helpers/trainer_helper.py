@@ -40,6 +40,30 @@ class Trainer(object):
         self.model_name = model_name
         self.output_dir = os.path.join('./' + cfg['save_path'], model_name)
         self.tester = None
+        self.amp_enabled = bool(cfg.get('amp_enabled', False))
+        if self.amp_enabled and not torch.cuda.is_available():
+            raise RuntimeError('trainer.amp_enabled requires CUDA')
+        amp_dtype_name = str(cfg.get('amp_dtype', 'float16')).lower()
+        if amp_dtype_name not in ('float16', 'fp16'):
+            raise ValueError(
+                'trainer.amp_dtype currently supports only float16/fp16'
+            )
+        self.amp_dtype = torch.float16
+        self.grad_scaler = torch.cuda.amp.GradScaler(
+            enabled=self.amp_enabled
+        )
+        self.zero_grad_set_to_none = bool(
+            cfg.get('zero_grad_set_to_none', False)
+        )
+        self.max_train_batches = cfg.get('max_train_batches')
+        if self.max_train_batches is not None:
+            self.max_train_batches = int(self.max_train_batches)
+            if self.max_train_batches <= 0:
+                raise ValueError('trainer.max_train_batches must be positive')
+        self.logger.info(
+            'Training precision: %s',
+            'CUDA AMP float16' if self.amp_enabled else 'FP32',
+        )
 
         # loading pretrain/resume model
         if cfg.get('pretrain_model'):
@@ -57,17 +81,26 @@ class Trainer(object):
                                 cfg.get('pretrain_allow_unexpected', True)
                             ))
 
-        if cfg.get('resume_model', None):
-            resume_model_path = os.path.join(self.output_dir, "checkpoint.pth")
-            assert os.path.exists(resume_model_path)
+        resume_model_path = os.path.join(self.output_dir, "checkpoint.pth")
+        resume_requested = bool(cfg.get('resume_model', None))
+        resume_if_exists = bool(cfg.get('resume_if_exists', False))
+        if resume_requested or (resume_if_exists and os.path.exists(resume_model_path)):
+            if not os.path.exists(resume_model_path):
+                raise FileNotFoundError(resume_model_path)
             self.epoch, self.best_result, self.best_epoch = load_checkpoint(
                 model=self.model.to(self.device),
                 optimizer=self.optimizer,
                 filename=resume_model_path,
                 map_location=self.device,
-                logger=self.logger)
+                logger=self.logger,
+                amp_scaler=self.grad_scaler if self.amp_enabled else None)
             self.lr_scheduler.last_epoch = self.epoch - 1
             self.logger.info("Loading Checkpoint... Best Result:{}, Best Epoch:{}".format(self.best_result, self.best_epoch))
+        elif resume_if_exists:
+            self.logger.info(
+                "No rolling checkpoint found; starting the fixed-epoch run "
+                "from its configured initialization."
+            )
         
     def train(self):
         start_epoch = self.epoch
@@ -100,7 +133,16 @@ class Trainer(object):
                     ckpt_name = os.path.join(self.output_dir, 'checkpoint')
                
                 save_checkpoint(
-                    get_checkpoint_state(self.model, self.optimizer, self.epoch, best_result, best_epoch),
+                    get_checkpoint_state(
+                        self.model,
+                        self.optimizer,
+                        self.epoch,
+                        best_result,
+                        best_epoch,
+                        amp_scaler=(
+                            self.grad_scaler if self.amp_enabled else None
+                        ),
+                    ),
                     ckpt_name)
 
                 if self.tester is not None:
@@ -112,13 +154,53 @@ class Trainer(object):
                         best_epoch = self.epoch
                         ckpt_name = os.path.join(self.output_dir, 'checkpoint_best')
                         save_checkpoint(
-                            get_checkpoint_state(self.model, self.optimizer, self.epoch, best_result, best_epoch),
+                            get_checkpoint_state(
+                                self.model,
+                                self.optimizer,
+                                self.epoch,
+                                best_result,
+                                best_epoch,
+                                amp_scaler=(
+                                    self.grad_scaler
+                                    if self.amp_enabled else None
+                                ),
+                            ),
                             ckpt_name)
                     self.logger.info("Best Result:{}, epoch:{}".format(best_result, best_epoch))
 
             progress_bar.update()
 
         self.logger.info("Best Result:{}, epoch:{}".format(best_result, best_epoch))
+
+        # KITTI test labels are hidden, so a trainval run must not select a
+        # checkpoint by test performance.  When explicitly requested, retain
+        # the state after the preregistered number of epochs under an
+        # unambiguous name.  Existing validation-based experiments keep their
+        # historical behaviour because this switch is disabled by default.
+        if bool(self.cfg.get('save_final_checkpoint', False)):
+            os.makedirs(self.output_dir, exist_ok=True)
+            final_checkpoint = os.path.join(
+                self.output_dir,
+                'checkpoint_final',
+            )
+            save_checkpoint(
+                get_checkpoint_state(
+                    self.model,
+                    self.optimizer,
+                    self.epoch,
+                    best_result,
+                    best_epoch,
+                    amp_scaler=(
+                        self.grad_scaler if self.amp_enabled else None
+                    ),
+                ),
+                final_checkpoint,
+            )
+            self.logger.info(
+                "Saved fixed-epoch final checkpoint: %s.pth (epoch=%d)",
+                final_checkpoint,
+                self.epoch,
+            )
 
         return None
 
@@ -144,15 +226,40 @@ class Trainer(object):
                 dn_args=(targets, self.cfg['scalar'], self.cfg['label_noise_scale'], self.cfg['box_noise_scale'], self.cfg['num_patterns'])
             ###
             # train one batch
-            self.optimizer.zero_grad()
-            outputs = self.model(inputs, calibs, targets, img_sizes, img_sizes_ori, img_sizes_upper, dn_args=dn_args)
-            mask_dict=None
-            #ipdb.set_trace()
-            detr_losses_dict = self.detr_loss(outputs, targets, mask_dict)
+            self.optimizer.zero_grad(
+                set_to_none=self.zero_grad_set_to_none
+            )
+            with torch.cuda.amp.autocast(
+                enabled=self.amp_enabled,
+                dtype=self.amp_dtype,
+            ):
+                outputs = self.model(
+                    inputs,
+                    calibs,
+                    targets,
+                    img_sizes,
+                    img_sizes_ori,
+                    img_sizes_upper,
+                    dn_args=dn_args,
+                )
+                mask_dict=None
+                #ipdb.set_trace()
+                detr_losses_dict = self.detr_loss(
+                    outputs,
+                    targets,
+                    mask_dict,
+                )
 
-            weight_dict = self.detr_loss.weight_dict
-            detr_losses_dict_weighted = [detr_losses_dict[k] * weight_dict[k] for k in detr_losses_dict.keys() if k in weight_dict]
-            detr_losses = sum(detr_losses_dict_weighted)
+                weight_dict = self.detr_loss.weight_dict
+                detr_losses_dict_weighted = [detr_losses_dict[k] * weight_dict[k] for k in detr_losses_dict.keys() if k in weight_dict]
+                detr_losses = sum(detr_losses_dict_weighted)
+
+            if not torch.isfinite(detr_losses).all():
+                raise FloatingPointError(
+                    'non-finite detector loss at epoch {} batch {}'.format(
+                        epoch, batch_idx
+                    )
+                )
 
             detr_losses_dict = misc.reduce_dict(detr_losses_dict)
             detr_losses_dict_log = {}
@@ -178,10 +285,24 @@ class Trainer(object):
                 print("")
                 print("")
 
-            detr_losses.backward()
-            self.optimizer.step()
+            if self.amp_enabled:
+                self.grad_scaler.scale(detr_losses).backward()
+                self.grad_scaler.step(self.optimizer)
+                self.grad_scaler.update()
+            else:
+                detr_losses.backward()
+                self.optimizer.step()
 
             progress_bar.update()
+            if (
+                self.max_train_batches is not None
+                and batch_idx + 1 >= self.max_train_batches
+            ):
+                self.logger.info(
+                    'Stopped epoch after %d batches as configured.',
+                    self.max_train_batches,
+                )
+                break
         progress_bar.close()
 
     def prepare_targets(self, targets, batch_size):

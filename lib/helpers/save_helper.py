@@ -10,17 +10,35 @@ def model_state_to_cpu(model_state):
     return model_state_cpu
 
 
-def get_checkpoint_state(model=None, optimizer=None, epoch=None, best_result=None, best_epoch=None):
+def _unwrap_model(model):
+    if isinstance(model, torch.nn.DataParallel):
+        return model.module
+    return model
+
+
+def get_checkpoint_state(
+    model=None,
+    optimizer=None,
+    epoch=None,
+    best_result=None,
+    best_epoch=None,
+    amp_scaler=None,
+):
     optim_state = optimizer.state_dict() if optimizer is not None else None
     if model is not None:
-        if isinstance(model, torch.nn.DataParallel):
-            model_state = model_state_to_cpu(model.module.state_dict())
-        else:
-            model_state = model.state_dict()
+        model_state = model_state_to_cpu(_unwrap_model(model).state_dict())
     else:
         model_state = None
 
-    return {'epoch': epoch, 'model_state': model_state, 'optimizer_state': optim_state, 'best_result': best_result, 'best_epoch': best_epoch}
+    scaler_state = amp_scaler.state_dict() if amp_scaler is not None else None
+    return {
+        'epoch': epoch,
+        'model_state': model_state,
+        'optimizer_state': optim_state,
+        'best_result': best_result,
+        'best_epoch': best_epoch,
+        'amp_scaler_state': scaler_state,
+    }
 
 
 def save_checkpoint(state, filename):
@@ -41,6 +59,7 @@ def load_checkpoint(
     strict=True,
     allowed_missing_prefixes=None,
     allow_unexpected=True,
+    amp_scaler=None,
 ):
     if os.path.isfile(filename):
         if logger is not None:
@@ -50,7 +69,7 @@ def load_checkpoint(
         best_result = checkpoint.get('best_result', 0.0)
         best_epoch = checkpoint.get('best_epoch', 0.0)
         if model is not None and checkpoint['model_state'] is not None:
-            incompatible = model.load_state_dict(
+            incompatible = _unwrap_model(model).load_state_dict(
                 checkpoint['model_state'], strict=strict
             )
             if logger is not None and not strict:
@@ -94,6 +113,14 @@ def load_checkpoint(
                     )
         if optimizer is not None and checkpoint['optimizer_state'] is not None:
             optimizer.load_state_dict(checkpoint['optimizer_state'])
+        if amp_scaler is not None:
+            scaler_state = checkpoint.get('amp_scaler_state')
+            if scaler_state is not None:
+                amp_scaler.load_state_dict(scaler_state)
+            elif logger is not None:
+                logger.info(
+                    'Checkpoint has no AMP scaler state; using a fresh scaler.'
+                )
         if logger is not None:
             logger.info("==> Done")
     else:

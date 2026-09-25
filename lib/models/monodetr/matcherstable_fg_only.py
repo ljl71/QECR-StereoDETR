@@ -57,10 +57,13 @@ class StableHungarianMatcher(nn.Module):
 
         # We flatten to compute the cost matrices in a batch
         
-        out_prob = outputs["pred_logits"].flatten(0, 1).sigmoid()  # [batch_size * num_queries, num_classes]
+        # Matching has no gradient and should remain numerically identical to
+        # the FP32 protocol under AMP.  Explicit FP32 costs also avoid mixing
+        # the half-precision score matrix with the FP32 GIoU implementation.
+        out_prob = outputs["pred_logits"].float().flatten(0, 1).sigmoid()  # [batch_size * num_queries, num_classes]
         # Compute the giou cost betwen boxes
-        out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
-        tgt_bbox = torch.cat([v["boxes_3d"] for v in targets])
+        out_bbox = outputs["pred_boxes"].float().flatten(0, 1)  # [batch_size * num_queries, 4]
+        tgt_bbox = torch.cat([v["boxes_3d"] for v in targets]).float()
          # Also concat the target labels and boxes
         tgt_ids = torch.cat([v["labels"] for v in targets]).long()
         bacth_size, class_nums = out_prob.shape
@@ -89,17 +92,17 @@ class StableHungarianMatcher(nn.Module):
         neg_cost_class = (1 - alpha) * (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
         pos_cost_class = alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
         cost_class = pos_cost_class[:, tgt_ids] - neg_cost_class[:, tgt_ids]
-        out_3dcenter = outputs["pred_boxes"][:, :, 0: 2].flatten(0, 1)  # [batch_size * num_queries, 4]
-        tgt_3dcenter = torch.cat([v["boxes_3d"][:, 0: 2] for v in targets])
+        out_3dcenter = outputs["pred_boxes"][:, :, 0: 2].float().flatten(0, 1)  # [batch_size * num_queries, 4]
+        tgt_3dcenter = torch.cat([v["boxes_3d"][:, 0: 2] for v in targets]).float()
         # Compute the 3dcenter cost between boxes
         cost_3dcenter = torch.cdist(out_3dcenter, tgt_3dcenter, p=1)
 
-        out_depth = outputs['pred_depth'][:, :, 0:1].flatten(0, 1)
-        tgt_depth = torch.cat([v['depth'] for v in targets])
+        out_depth = outputs['pred_depth'][:, :, 0:1].float().flatten(0, 1)
+        tgt_depth = torch.cat([v['depth'] for v in targets]).float()
         cost_depth = torch.cdist(out_depth, tgt_depth, p=1)
 
-        out_2dbbox = outputs["pred_boxes"][:, :, 2: 6].flatten(0, 1)  # [batch_size * num_queries, 4]
-        tgt_2dbbox = torch.cat([v["boxes_3d"][:, 2: 6] for v in targets])
+        out_2dbbox = outputs["pred_boxes"][:, :, 2: 6].float().flatten(0, 1)  # [batch_size * num_queries, 4]
+        tgt_2dbbox = torch.cat([v["boxes_3d"][:, 2: 6] for v in targets]).float()
 
         # Compute the L1 cost between boxes
         cost_bbox = torch.cdist(out_2dbbox, tgt_2dbbox, p=1)
@@ -131,8 +134,8 @@ class StableHungarianMatcher(nn.Module):
         indices_filted = []
        
         for batch_index in range(bs):
-            out_bbox_i = outputs["pred_boxes"][batch_index]  # [batch_size * num_queries, 4]
-            tgt_bbox_i = targets[batch_index]["boxes_3d"]
+            out_bbox_i = outputs["pred_boxes"][batch_index].float()  # [batch_size * num_queries, 4]
+            tgt_bbox_i = targets[batch_index]["boxes_3d"].float()
             all_iou = box_iou(box_cxcylrtb_to_xyxy(out_bbox_i), box_cxcylrtb_to_xyxy(tgt_bbox_i))[0].view(num_queries, -1)
             indices_i = deepcopy(indices_match[batch_index])
             all_iou_indices = all_iou[indices_i]

@@ -217,6 +217,13 @@ def extract_dets_from_outputs(
     prob = out_logits.sigmoid()
     sigma_all = torch.exp(-outputs['pred_depth'][:, :, 1: 2])
     quality = outputs.get('pred_quality')
+    quality_base = outputs.get('pred_quality_base')
+    quality_car = outputs.get('pred_quality_car')
+    car_class_index = int(outputs.get('quality_car_class_index', 0))
+    if (quality_base is None) != (quality_car is None):
+        raise ValueError(
+            "class-specific quality requires both base and Car quality"
+        )
 
     # The original StereoDETR path chooses query-class pairs with class
     # probability only, then applies depth/quality confidence after Top-K.
@@ -229,7 +236,14 @@ def extract_dets_from_outputs(
             raise ValueError(
                 "quality-guided Top-K requires outputs['pred_quality']"
             )
-        selection_prob = prob * sigma_all * quality
+        if quality_base is not None:
+            if not 0 <= car_class_index < out_logits.shape[2]:
+                raise ValueError("quality_car_class_index is out of range")
+            quality_by_class = quality_base.expand_as(prob).clone()
+            quality_by_class[:, :, car_class_index] = quality_car[:, :, 0]
+            selection_prob = prob * sigma_all * quality_by_class
+        else:
+            selection_prob = prob * sigma_all * quality
 
     _, topk_indexes = torch.topk(
         selection_prob.view(out_logits.shape[0], -1),
@@ -268,8 +282,17 @@ def extract_dets_from_outputs(
     heading = torch.gather(heading, 1, topk_boxes.repeat(1, 1, 24))
     depth = torch.gather(depth, 1, topk_boxes)
     sigma = torch.gather(sigma, 1, topk_boxes) 
-    if quality is not None:
+    if quality_base is not None:
+        gathered_base = torch.gather(quality_base, 1, topk_boxes)
+        gathered_car = torch.gather(quality_car, 1, topk_boxes)
+        quality = torch.where(
+            (labels == car_class_index).unsqueeze(-1),
+            gathered_car,
+            gathered_base,
+        )
+    elif quality is not None:
         quality = torch.gather(quality, 1, topk_boxes)
+    if quality is not None:
         # Preserve the existing tensor layout: the final column remains the
         # complete ranking confidence consumed by decode_detections().
         sigma = sigma * quality

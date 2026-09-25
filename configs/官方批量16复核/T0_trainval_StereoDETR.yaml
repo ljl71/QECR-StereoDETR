@@ -1,0 +1,28 @@
+base_config: ../QECR默认配置.yaml
+
+# 官方批量复核阶段0：以真实全局batch=16在全部7481张训练图像上
+# 重训StereoDETR。KITTI test没有公开标签，训练过程不进行test选优。
+model_name: stereodetr_trainval_global_batch16
+
+dataset:
+  root_dir: /root/autodl-tmp/datasets/KITTI/object/training
+  train_split: trainval
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/trainval.txt
+  test_split: test
+  root_dir_eval: /root/autodl-tmp/datasets/KITTI/object/testing
+  eval_txt: /root/autodl-tmp/datasets/KITTI/object/testing/ImageSets/test.txt
+  batch_size: 16
+  workers: 8
+
+trainer:
+  max_epoch: 195
+  gpu_ids: "0"
+  amp_enabled: false
+  amp_dtype: float16
+  zero_grad_set_to_none: true
+  save_frequency: 1
+  save_all: false
+  resume_model: false
+  resume_if_exists: true
+  save_final_checkpoint: true
+  save_path: outputs/KITTI_trainval官方批量16复核/T0_StereoDETR/

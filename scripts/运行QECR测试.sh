@@ -15,8 +15,14 @@ bash -n scripts/运行V14固定相关平滑.sh
 bash -n scripts/运行G5三维框组件误差归因.sh
 bash -n scripts/运行V20立体几何深度残差.sh
 bash -n scripts/运行V22轴向IoU深度损失.sh
+bash -n scripts/运行V09_trainval官网最终提交.sh
+bash -n scripts/运行StereoDETR同环境基线官网提交.sh
+bash -n scripts/运行V23分组视差预聚合.sh
 
 python tools/检查QECR消融配置.py
+python tools/检查V09Trainval官网复核配置.py
+python tools/检查StereoDETR同环境基线配置.py
+python tools/测试固定轮次Checkpoint.py
 python tools/诊断3D质量排序_G1.py --self_test
 python tools/诊断三维框组件误差_G5.py --self_test
 python tools/诊断朝向感知几何深度_G6.py --self_test
@@ -26,6 +32,12 @@ python tools/汇总V20立体几何深度残差.py --self_test
 python -m py_compile tools/审计V20训练参数.py
 python tools/测试V22轴向IoU深度损失.py
 python tools/汇总V22轴向IoU深度损失.py --self_test
+python tools/诊断GPSD信息保真_G8.py --self_test
+python tools/测试V23分组视差预聚合.py
+python tools/汇总V23分组视差预聚合.py --self_test
+python tools/汇总V23双随机种子.py --self_test
+python tools/汇总V23时延.py --self_test
+python tools/汇总V23质量重标定.py --self_test
 python -m py_compile tools/检查V22模型结构.py tools/审计V22训练参数.py
 python tools/测试多候选视差监督.py
 python tools/测试3D质量排序.py
@@ -79,6 +91,15 @@ python -m py_compile \
   tools/检查V22模型结构.py \
   tools/审计V22训练参数.py \
   tools/汇总V22轴向IoU深度损失.py \
+  tools/诊断GPSD信息保真_G8.py \
+  tools/测试V23分组视差预聚合.py \
+  tools/检查V23模型结构.py \
+  tools/审计V23训练参数.py \
+  tools/审计V23质量训练参数.py \
+  tools/汇总V23分组视差预聚合.py \
+  tools/汇总V23双随机种子.py \
+  tools/汇总V23时延.py \
+  tools/汇总V23质量重标定.py \
   tools/测试3D质量排序.py \
   tools/测试Checkpoint兼容白名单.py \
   tools/汇总V09强基线质量组合.py \
@@ -96,5 +117,10 @@ python -m py_compile \
   tools/汇总V14固定相关平滑.py \
   tools/测试空间投影对齐.py \
   tools/训练与评估_无蒸馏QECR.py
+python -m py_compile \
+  tools/检查V09Trainval官网复核配置.py \
+  tools/检查StereoDETR同环境基线配置.py \
+  tools/测试固定轮次Checkpoint.py \
+  tools/检查并打包KITTI提交.py
 
 echo "QECR pre-training checks passed"

@@ -1,0 +1,31 @@
+base_config: T1_trainval强控制.yaml
+
+# 阶段2冻结检测器，只训练既有QLQC质量分支3轮。
+model_name: qlqc_trainval_global_batch16
+
+model:
+  quality_ranking:
+    enabled: true
+    loss_enabled: true
+    freeze_detector: true
+    quality_only_when_frozen: true
+    score_power: 1.5
+    point_loss_coef: 10.0
+    negative_threshold: 0.1
+    negative_weight: 0.1
+    pairwise_enabled: false
+
+tester:
+  quality_guided_topk: false
+
+optimizer:
+  lr: 0.001
+
+trainer:
+  max_epoch: 3
+  pretrain_model: /root/autodl-tmp/QECR-StereoDETR/outputs/KITTI_trainval官方批量16复核/T1_强控制/stereodetr_trainval_global_batch16_strong_control/checkpoint_final.pth
+  pretrain_strict: false
+  pretrain_allowed_missing_prefixes:
+    - quality_head.
+  pretrain_allow_unexpected: false
+  save_path: outputs/KITTI_trainval官方批量16复核/T2_QLQC/

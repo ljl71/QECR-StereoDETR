@@ -1,0 +1,14 @@
+base_config: T0_trainval_StereoDETR.yaml
+
+model_name: global_batch16_memory_smoke
+
+dataset:
+  train_split: train
+  train_txt: /root/autodl-tmp/datasets/KITTI/object/training/ImageSets/train_batch16_smoke.txt
+
+trainer:
+  max_epoch: 1
+  max_train_batches: 2
+  resume_if_exists: false
+  save_final_checkpoint: true
+  save_path: outputs/KITTI_trainval官方批量16复核/批量16显存冒烟/
